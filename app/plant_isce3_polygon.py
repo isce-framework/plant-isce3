@@ -1,0 +1,570 @@
+#!/usr/bin/env python3
+
+import os
+import plant
+import numpy as np
+from osgeo import gdal
+import random
+import isce3
+from nisar.products.readers import SLC
+
+def get_parser():
+    '''
+    Command line parser.
+    '''
+    descr = ('')
+    epilog = ''
+    parser = plant.argparse(epilog=epilog,
+                            description=descr,
+                            input_file=1,
+                            dem_file=2,
+                            default_options=1,
+                            multilook=1,
+                            output_file=1)
+
+    parser.add_argument('--input-raster',
+                        dest='input_raster',
+                        type=str,
+                        help='Input raster.')
+
+    parser.add_argument('--abs-cal-factor',
+                        '--abs-calibration-factor',
+                        '--calibration-factor',
+                        dest='abs_cal_factor',
+                        type=float,
+                        help='Absolute calibration factor')
+
+    parser.add_argument('--exponent',
+                        dest='exponent',
+                        type=int,
+                        help='Exponent. Choices: 0, 1, and 2')
+
+    parser.add_argument('--add-off-diag-terms',
+                        '--add-off-diagonal-terms',
+                        '--include-off-diag-terms',
+                        '--include-off-diagonal-terms',
+                        dest='flag_add_off_diag_terms',
+                        action='store_true',
+                        help='Include off-diagonal terms.')
+
+    parser.add_argument('--save-radargrid-data',
+                        '--save-radar-data',
+                        action='store_true',
+                        dest='save_radargrid_data',
+                        help='Sava radar-grid data')
+
+    parser.add_argument('--save-rtc',
+                        '--save-rtc-area-factor',
+                        action='store_true',
+                        dest='save_rtc',
+                        help='Save RTC area factor')
+
+    parser.add_argument('--save-weights',
+                        action='store_true',
+                        dest='save_weights',
+                        help='Save area projection weights')
+
+    # arguments
+    parser_output_mode = parser.add_mutually_exclusive_group()
+    parser_output_mode.add_argument('--area',
+                                    action='store_true',
+                                    dest='output_mode_area',
+                                    help='Use area mode')
+
+    parser_output_mode.add_argument('--area-gamma-naught',
+                                    action='store_true',
+                                    dest='output_mode_area_gamma_naught',
+                                    help='Use area mode and apply radiometric'
+                                    ' terrain correction')
+
+    parser.add_argument('--native-doppler',
+                        dest='native_doppler',
+                        default=False,
+                        action='store_true',
+                        help='Native Doppler.')
+    
+    parser.add_argument('--upsampling',
+                        dest='geogrid_upsampling',
+                        type=float,
+                        help='Geogrid upsample factor.')
+
+    parser.add_argument('--rtc-min-value-db',
+                        dest='rtc_min_value_db',
+                        type=float,
+                        help='DEM upsample factor.')
+
+    parser.add_argument('--input-radiometry',
+                        '--input-terrain-radiometry',
+                        dest='input_terrain_radiometry',
+                        type=str,
+                        help='Input data radiometry. Options:'
+                        'beta or sigma-ellipsoid')
+    
+    parser.add_argument('--output-radiometry',
+                        '--output-terrain-radiometry',
+                        dest='output_terrain_radiometry',
+                        type=str,
+                        help='Output data radiometry. Options:'
+                        'sigma-naught or gamma-naught')
+
+
+    parser.add_argument('--in-geo-edges',
+                        dest='in_geo_edges',
+                        type=str,
+                        help='Input geo edges file')
+
+    parser.add_argument('--out-nlooks',
+                        dest='out_nlooks',
+                        type=str,
+                        help='Output nlooks file')
+
+    return parser
+
+
+class PlantISCE3Polygon(plant.PlantScript):
+
+    def __init__(self, parser, argv=None):
+        '''
+        class initialization
+        '''
+        super().__init__(parser, argv)
+
+    def run(self):
+        '''
+        run main method
+        '''
+        if not self.plant_transform_obj.geo_polygon:
+            self.print('ERROR one the following argument is required:'
+                       f' {self.plant_transform_obj.geo_polygon}')
+            return
+        if self.input_key and self.input_key == 'B':
+            frequency_str = 'B'
+        else:
+            frequency_str = 'A'
+
+        ret_dict = self._get_input_raster_from_nisar_slc(
+            self.input_raster)
+        input_raster = ret_dict['input_raster']
+        input_raster_obj = isce3.io.Raster(input_raster)
+
+        if self.nlooks_az is None:
+            self.nlooks_az = 1
+        if self.nlooks_rg is None:
+            self.nlooks_rg = 1
+
+        slc_obj = SLC(hdf5file=self.input_file)
+        orbit = slc_obj.getOrbit()
+        ellipsoid = isce3.core.Ellipsoid()
+        doppler = self._get_doppler(slc_obj)
+
+        # Get radar grid
+        radar_grid_ml = self._get_radar_grid(slc_obj,
+                                             frequency_str)
+
+        if input_raster_obj.datatype() == 6:
+            GeocodePolygon = isce3.geocode.GeocodePolygonFloat32
+        elif input_raster_obj.datatype() == 7:
+            GeocodePolygon = isce3.geocode.GeocodePolygonFloat64
+        elif input_raster_obj.datatype() == 10:
+            GeocodePolygon = isce3.geocode.GeocodePolygonCFloat32
+        elif input_raster_obj.datatype() == 11:
+            GeocodePolygon = isce3.geocode.GeocodePolygonCFloat64
+        else:
+            raise NotImplementedError('Unsupported raster type for geocoding')
+
+        dem_raster = isce3.io.Raster(self.dem_file)
+        if dem_raster.get_epsg() == 0 or dem_raster.get_epsg() < -9000:
+            print(f'WARNING invalid DEM EPSG: {dem_raster.get_epsg()}')
+            print('Updating DEM EPSG to 4326...')
+            dem_raster.set_epsg(4326);
+
+        output_dir = os.path.dirname(self.output_file)
+        if output_dir and not os.path.isdir(output_dir):
+            os.makedirs(output_dir)
+
+        input_dtype = input_raster_obj.datatype()
+        print('*** exponent: ', self.exponent)
+        if self.exponent is None:
+            self.exponent = 2 if self.transform_square else 0
+        if self.exponent % 2 == 0 and input_dtype == gdal.GDT_CFloat32:
+            output_dtype = gdal.GDT_Float32
+            self.transform_square = True
+        elif self.exponent % 2 == 0 and input_dtype == gdal.GDT_CFloat64:
+            output_dtype = gdal.GDT_Float64
+            self.transform_square = True
+        else:
+            output_dtype = input_dtype
+
+        self.print(f'*** input_dtype: {input_dtype}')
+        self.print(f'*** output_dtype: {output_dtype}')
+        if output_dtype == gdal.GDT_Float32:
+            print('*** output dtype: float32')
+        elif output_dtype == gdal.GDT_Float64:
+            print('*** output dtype: float64')
+        elif output_dtype == gdal.GDT_CFloat32:
+            print('*** output dtype: cfloat32')
+        elif output_dtype == gdal.GDT_CFloat64:
+            print('*** output dtype: cfloat64')
+
+        nbands = input_raster_obj.num_bands
+        self.print(f'*** nbands: {nbands}')
+
+        print(f'*** input_raster.width: {input_raster_obj.width}')
+        print(f'*** input_raster.length: {input_raster_obj.length}')
+
+        kwargs = {}
+        if self.output_mode_area_gamma_naught:
+            flag_error = False
+            try:
+                output_mode = isce3.geocode.GeocodeOutputMode.AREA_PROJECTION_GAMMA_NAUGHT
+            except:
+                flag_error = True
+            if flag_error:
+                try:
+                    output_mode = isce3.geocode.GeocodeOutputMode.AREA_PROJECTION_WITH_RTC
+                    flag_error = False
+                except:
+                    pass
+            if flag_error:
+                output_mode = isce3.geocode.GeocodeOutputMode.AREA_PROJECTION
+                kwargs['flag_apply_rtc'] = True
+        else:
+            output_mode = isce3.geocode.GeocodeOutputMode.AREA_PROJECTION
+
+        flag_sigma = (self.input_terrain_radiometry is not None and
+                      ('sigma-inc' in self.input_terrain_radiometry or
+                       'sigma-el' in self.input_terrain_radiometry))
+
+        if flag_sigma:
+            kwargs['input_terrain_radiometry'] = \
+                isce3.geometry.RtcInputTerrainRadiometry.SIGMA_NAUGHT_ELLIPSOID
+        else:
+            kwargs['input_terrain_radiometry'] = \
+                isce3.geometry.RtcInputTerrainRadiometry.BETA_NAUGHT
+
+        if (self.output_terrain_radiometry is not None and
+                'beta' in self.output_terrain_radiometry.lower()):
+            output_terrain_radiometry = isce3.geometry.RtcOutputTerrainRadiometry.BETA_NAUGHT_TEST
+        elif (self.output_terrain_radiometry is not None and
+              'sigma' in self.output_terrain_radiometry.lower()):
+            output_terrain_radiometry = isce3.geometry.RtcOutputTerrainRadiometry.SIGMA_NAUGHT
+        else:
+            output_terrain_radiometry = isce3.geometry.RtcOutputTerrainRadiometry.GAMMA_NAUGHT
+        kwargs['output_terrain_radiometry'] = output_terrain_radiometry
+
+        if self.geogrid_upsampling is None:
+            self.geogrid_upsampling = 1
+
+        if self.rtc_min_value_db is not None:
+            kwargs['rtc_min_value_db'] = self.rtc_min_value_db
+
+        if self.abs_cal_factor is not None:
+            kwargs['abs_cal_factor'] = self.abs_cal_factor
+
+        kwargs['radargrid_nlooks'] = (self.nlooks_az *
+                                      self.nlooks_rg)
+
+        print('*** geo-polygon:',
+              self.plant_transform_obj.geo_polygon)
+        parsed_polygon = plant.parse_polygon_from_file(
+            self.plant_transform_obj.geo_polygon,
+            verbose=self.verbose)
+        if parsed_polygon is None:
+            return
+        y_vect_list, x_vect_list = parsed_polygon
+        if len(y_vect_list) == 0:
+            self.print('ERROR polygon Y-coordinate list is empty')
+            return
+
+        if len(y_vect_list) == 0:
+            self.print('ERROR polygon Y-coordinate list is empty')
+            return
+
+        n_polygons = np.min([len(y_vect_list), len(x_vect_list)])
+
+        result_list = [None] * n_polygons
+
+        if self.out_nlooks:
+            nlooks_list = [np.nan] * n_polygons
+
+        for i, (y_vect, x_vect) in enumerate(
+                zip(y_vect_list, x_vect_list)):
+            self.print(f'Processing polygon {i+1}:')
+            with plant.PlantIndent():
+                self.print(f'Y-vect: {y_vect}')
+                self.print(f'X-vect: {x_vect}')
+                temp_file = plant.get_temporary_file(
+                    suffix=f'polygon_{i+1}_temp_{random.random()}',
+                    append=True)
+                plant.append_temporary_file(temp_file)
+                out_polygon_raster_obj = isce3.io.Raster(
+                    temp_file,
+                    nbands,
+                    1,
+                    1,
+                    output_dtype,
+                    'ENVI')
+
+                out_off_diag_terms_obj = None
+                temp_off_diag_file = None
+                nbands_off_diag_terms = None
+                if self.flag_add_off_diag_terms:
+                    nbands_off_diag_terms = int((nbands**2-nbands)/2)
+                    print('nbands_off_diag_terms: ', nbands_off_diag_terms)
+                    if nbands_off_diag_terms > 0:
+                        temp_off_diag_file = plant.get_temporary_file(
+                            suffix=f'polygon_{i+1}_temp_{random.random()}',
+                            append=True)
+                        plant.append_temporary_file(temp_off_diag_file)
+                        out_off_diag_terms_obj = isce3.io.Raster(
+                            temp_off_diag_file,
+                            nbands_off_diag_terms,
+                            1,
+                            1,
+                            gdal.GDT_CFloat32,
+                            'ENVI')
+                try:
+                    polygon_obj = GeocodePolygon(
+                        x_vect,
+                        y_vect,
+                        radar_grid_ml,
+                        orbit,
+                        ellipsoid,
+                        doppler,
+                        dem_raster)
+                except:
+                    error_message = plant.get_error_message()
+                    self.print(f'ERROR there was an error processing polygon {i+1}: ' +
+                               error_message)
+                    if not self.flag_add_off_diag_terms:
+                        result_list[i] = np.full((1, nbands), np.nan)
+                    else:
+                        result_list[i] = np.full((nbands, nbands), np.nan,
+                                                 dtype=np.complex64)
+                    continue
+
+                width = polygon_obj.xsize
+                length = polygon_obj.ysize
+                print(f'*** cropped radar grid dimensions: {width}x{length}')
+
+                if self.save_radargrid_data:
+                    radargrid_data_filename = f'polygon_{i+1}_data.bin'
+                    output_radargrid_data_obj = isce3.io.Raster(
+                        radargrid_data_filename,
+                        width,
+                        length,
+                        nbands,
+                        output_dtype,
+                        "ENVI")
+                    kwargs['output_radargrid_data'] = output_radargrid_data_obj
+                    plant.append_output_file(radargrid_data_filename)
+
+                if self.save_rtc:
+                    rtc_filename = f'polygon_{i+1}_rtc.bin'
+                    output_rtc_obj = isce3.io.Raster(
+                        rtc_filename,
+                        width,
+                        length,
+                        1,
+                        gdal.GDT_Float32,
+                        "ENVI")
+                    kwargs['output_rtc'] = output_rtc_obj
+                    plant.append_output_file(rtc_filename)
+
+                if self.save_weights:
+                    weights_filename = f'polygon_{i+1}_weights.bin'
+                    output_weights_obj = isce3.io.Raster(
+                        weights_filename,
+                        width,
+                        length,
+                        1,
+                        gdal.GDT_Float64,
+                        "ENVI")
+                    kwargs['output_weights'] = output_weights_obj
+                    plant.append_output_file(weights_filename)
+
+                flag_error = False
+                try:
+                    polygon_obj.get_polygon_mean(
+                        radar_grid_ml,
+                        doppler,
+                        input_raster_obj,
+                        out_polygon_raster_obj,
+                        dem_raster,
+                        output_off_diag_terms=out_off_diag_terms_obj,
+                        exponent=self.exponent,
+                        output_mode=output_mode,
+                        geogrid_upsampling=self.geogrid_upsampling,
+                        **kwargs)
+                except:
+                    flag_error = True
+                if flag_error:
+                    try:
+                        polygon_obj.get_polygon_mean(
+                            radar_grid_ml,
+                            doppler,
+                            input_raster_obj,
+                            out_polygon_raster_obj,
+                            dem_raster,
+                            output_off_diag_terms=out_off_diag_terms_obj,
+                            exponent=self.exponent,
+                            geogrid_upsampling=self.geogrid_upsampling,
+                            **kwargs)
+                    except:
+                        error_message = plant.get_error_message()
+                        self.print(f'There was an error processing polygon {i+1}: ' +
+                                   error_message)
+                        if not self.flag_add_off_diag_terms:
+                            result_list[i] = np.full((1, nbands), np.nan)
+                        else:
+                            result_list[i] = np.full((nbands, nbands), np.nan,
+                                                     dtype=np.complex64)
+                        continue
+
+                if self.save_radargrid_data:
+                    output_radargrid_data_obj = kwargs['output_radargrid_data']
+                    del output_radargrid_data_obj
+
+                if self.save_rtc:
+                    output_rtc_obj = kwargs['output_rtc']
+                    del output_rtc_obj
+
+                if self.save_weights:
+                    output_weights_obj = kwargs['output_weights']
+                    del output_weights_obj
+
+                if self.out_nlooks:
+                    nlooks = polygon_obj.out_nlooks
+                    print('*** nlooks: ', nlooks)
+                    nlooks_list[i] = nlooks
+                del out_polygon_raster_obj
+                mean_value_image = plant.read_image(temp_file).image
+                print('*** mean_value_image:', mean_value_image)
+                mean_value = np.asarray(mean_value_image[0]).reshape(1, nbands)
+                print('*** mean_value returned: ', mean_value)
+                print('*** mean_value.shape:', mean_value.shape)
+
+                if self.flag_add_off_diag_terms:
+                    del out_off_diag_terms_obj
+                    mean_off_value = np.asarray(plant.read_image(
+                        temp_off_diag_file).image[0])
+                    print('*** mean_value off-diag returned: ', mean_off_value)
+
+                    cov_matrix = np.full((nbands, nbands), np.nan,
+                                         dtype=np.complex64)
+                    band_index = 0
+                    for band_1 in range(nbands):
+                        for band_2 in range(nbands):
+                            if band_1 == band_2:
+                                cov_matrix[band_1, band_2] = mean_value[0, band_1]
+                            elif band_1 < band_2:
+                                cov_matrix[band_1, band_2] = mean_off_value[band_index]
+                                band_index += 1
+                            else:
+                                cov_matrix[band_1, band_2] = np.conj(
+                                    cov_matrix[band_2, band_1])
+                    print('*** cov_matrix: ', cov_matrix)
+                    mean_value = cov_matrix
+
+            result_list[i] = mean_value
+
+        del input_raster_obj
+
+        if self.out_nlooks:
+            self.save_image(nlooks_list, self.out_nlooks)
+
+        self.save_image(result_list, self.output_file)
+        plant.append_output_file(self.output_file)
+        return result_list
+
+    def _get_radar_grid(self, slc_obj, frequency_str):
+        radar_grid = slc_obj.getRadarGrid(frequency_str)
+        if (self.nlooks_az > 1 or self.nlooks_rg > 1):
+            radar_grid_ml = radar_grid.multilook(self.nlooks_az,
+                                                 self.nlooks_rg)
+        else:
+            radar_grid_ml = radar_grid
+        if self.select_row is not None or self.select_col is not None:
+            self.plant_transform_obj.update_crop_window(
+                length_orig=radar_grid_ml.length,
+                width_orig=radar_grid_ml.width)
+            y0 = self.plant_transform_obj._offset_y
+            if y0 is None:
+                y0 = 0
+            x0 = self.plant_transform_obj._offset_x
+            if x0 is None:
+                x0 = 0
+            length = self.plant_transform_obj.length
+            if length is None:
+                length = radar_grid_ml.length
+            width = self.plant_transform_obj.width
+            if width is None:
+                width = radar_grid_ml.width
+            radar_grid_ml = radar_grid_ml.offsetAndResize(
+                y0, x0, length, width)
+        return radar_grid_ml
+
+    def _get_input_raster_from_nisar_slc(self, input_raster):
+        if self.input_key and self.input_key == 'B':
+            frequency_str = 'B'
+        else:
+            frequency_str = 'A'
+        if input_raster is not None:
+
+            plant_transform_obj = self.plant_transform_obj.copy()
+            plant_transform_obj.polygon = None
+            plant_transform_obj.geo_polygon = None
+
+            flag_apply_transformation = \
+                plant_transform_obj.flag_apply_transformation()
+
+            image_obj = self.read_image(input_raster)
+            if flag_apply_transformation:
+                temp_file = plant.get_temporary_file(append=True,
+                                                     ext='vrt')
+                for b in range(image_obj.nbands):
+                    band = image_obj.get_band(band=b)
+                    image_obj.set_band(band, band=b)
+                self.print(f'*** creating temporary file: {temp_file}')
+                self.save_image(image_obj, temp_file, force=True,
+                                output_format='VRT')
+                input_raster = temp_file
+        else:
+            raster_file = f'NISAR:{self.input_file}:{frequency_str}'
+            temp_file = plant.get_temporary_file(append=True,
+                                                 ext='vrt')
+            self.print(f'*** creating temporary file: {temp_file}')
+            image_obj = self.read_image(raster_file)
+            for b in range(image_obj.nbands):
+                band = image_obj.get_band(band=b)
+                image_obj.set_band(band, band=b)
+            self.save_image(image_obj, temp_file, force=True,
+                            output_format='VRT')
+            input_raster = temp_file
+        ret_dict = {}
+        ret_dict['input_raster'] = input_raster
+        ret_dict['image_obj'] = image_obj
+        return ret_dict
+
+
+    def _get_doppler(self, slc_obj):
+        # product, frequency_str
+        if self.native_doppler:
+            print('*** native dop')
+            doppler = slc_obj.getDopplerCentroid()
+        else:
+            # Make a zero-Doppler LUT
+            print('*** zero dop')
+            doppler = isce3.core.LUT2d()
+        return doppler
+
+
+def main(argv=None):
+    with plant.PlantLogger():
+        parser = get_parser()
+        self_obj = PlantISCE3Polygon(parser, argv)
+        ret = self_obj.run()
+        return ret
+
+if __name__ == '__main__':
+    main()
