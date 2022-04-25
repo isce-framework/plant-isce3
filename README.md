@@ -3,7 +3,7 @@ PLAnT-ISCE3: Polarimetric Interferometric Lab and Analysis Tool (PLAnT) scripts 
 
 ---
 
-PLAnT-ISCE3 is a general-purpose toolbox that uses the open-source Polarimetric Interferometric Lab and Analysis Tool (PLAnT) framework to provide an “easy-to-use” command-line interface (CLI) for the open-source InSAR Scientific Computing Environment 3 (ISCE3) framework and leverage ISCE3 capabilities. PLAnT-ISCE3 delivers a simple yet comprehensive interface to ISCE3 modules/functionalities focusing on the end-user. Additionally, since most ISCE3 modules can only be accessed externally via ISCE3 C++ or Python application programming interfaces (APIs), i.e., not through ISCE3 command-line interfaces (CLI), PLAnT-ISCE3 provides unique access to many ISCE3 functionalities that are not directly exposed to the end-user.
+PLAnT-ISCE3 is a general-purpose toolbox that uses the open-source Polarimetric Interferometric Lab and Analysis Tool (PLAnT) framework to provide an “easy-to-use” command-line interface (CLI) for the open-source InSAR Scientific Computing Environment 3 (ISCE3) framework and leverage ISCE3 capabilities. PLAnT-ISCE3 delivers an interface to ISCE3 modules/functionalities focusing on the end-user. Additionally, since most ISCE3 modules can only be accessed externally via ISCE3 C++ or Python application programming interfaces (APIs), i.e., not through ISCE3 command-line interfaces (CLI), PLAnT-ISCE3 provides unique access to many ISCE3 functionalities that are not directly exposed to the end-user.
 
 ISCE3 repository: https://github.com/isce-framework/isce3
 
