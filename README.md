@@ -14,3 +14,33 @@ PLAnT repository: https://gitlab.com/plant/plant
 Copyright 2022, by the California Institute of Technology. ALL RIGHTS RESERVED. United States Government Sponsorship acknowledged. Any commercial use must be negotiated with the Office of Technology Transfer at the California Institute of Technology.
 
 This software may be subject to U.S. export control laws. By accepting this software, the user agrees to comply with all applicable U.S. export laws and regulations. User has the responsibility to obtain export licenses, or other export authority as may be required before exporting such information to foreign countries or providing access to foreign persons.
+
+---
+
+## Installation
+
+Download the source code and move working directory to clone repository:
+
+```bash
+git clone https://github.com/isce-framework/PLAnT-ISCE3.git
+cd PLAnT-ISCE3
+```
+
+Install PROTEUS via conda/setup.py (recommended):
+
+```bash
+python setup.py install
+```
+
+Or via pip:
+
+```bash
+pip install .
+```
+
+Or via environment path setup:
+
+```bash
+export PLANT_ISCE3_HOME=$PWD
+export PATH=${PATH}:${PLANT_ISCE3_HOME}/bin
+```
