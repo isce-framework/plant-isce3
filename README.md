@@ -19,7 +19,12 @@ This software may be subject to U.S. export control laws. By accepting this soft
 
 ## Installation
 
-1. Install PLAnT and ISCE3.
+1. Install PLAnT and ISCE3. Suggested commands:
+
+```bash
+conda install plant -c plant
+conda install isce3 -c conda-forge
+```
 
 2. Download the source code and move working directory to clone repository:
 
