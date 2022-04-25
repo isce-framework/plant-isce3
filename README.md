@@ -19,7 +19,7 @@ This software may be subject to U.S. export control laws. By accepting this soft
 
 ## Installation
 
-1. Install ISCE3 and PLAnT.
+1. Install PLAnT and ISCE3.
 
 2. Download the source code and move working directory to clone repository:
 
@@ -28,7 +28,7 @@ git clone https://github.com/isce-framework/plant-isce3.git
 cd plant-isce3
 ```
 
-3.1 Install PROTEUS via conda/setup.py (recommended):
+3.1 Install PLAnT-ISCE3 via setup.py:
 
 ```bash
 python setup.py install
