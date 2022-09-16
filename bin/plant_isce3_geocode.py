@@ -442,7 +442,6 @@ class PlantISCE3Geocode(plant.PlantScript):
         # init geocode members
         geo.orbit = orbit
         geo.ellipsoid = ellipsoid
-        geo.dem_block_margin = 100 # 1e-8
     
         dem_raster = isce3.io.Raster(self.dem_file)
         if self.epsg is None:
@@ -731,7 +730,6 @@ class PlantISCE3Geocode(plant.PlantScript):
             geo_rtc = isce3.geocode.GeocodeFloat32()
             geo_rtc.orbit = orbit
             geo_rtc.ellipsoid = ellipsoid
-            geo_rtc.dem_block_margin = 100 # 1e-8
             geo_rtc.doppler = doppler
             geo_rtc.threshold_geo2rdr = self.geo2rdr_threshold
             geo_rtc.numiter_geo2rdr = self.geo2rdr_num_iter
