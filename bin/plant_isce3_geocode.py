@@ -22,7 +22,7 @@ def get_parser():
                             default_options=1,
                             geo=1,
                             multilook=1,
-                            output_file=1)
+                            output_file=2)
 
     parser.add_argument('--input-raster',
                         dest='input_raster',
@@ -644,11 +644,11 @@ class PlantISCE3Geocode(plant.PlantScript):
         kwargs = {}
 
         if self.memory_mode == 'single-block':
-            kwargs['memory_mode'] = isce3.geocode.GeocodeMemoryMode.SINGLE_BLOCK
+            kwargs['memory_mode'] = isce3.core.GeocodeMemoryMode.SingleBlock
         elif self.memory_mode == 'blocks-geogrid':
-            kwargs['memory_mode'] = isce3.geocode.GeocodeMemoryMode.BLOCKS_GEOGRID
+            kwargs['memory_mode'] = isce3.core.GeocodeMemoryMode.BlocksGeogrid
         elif self.memory_mode == 'blocks-geogrid-and-radargrid':
-            kwargs['memory_mode'] = isce3.geocode.GeocodeMemoryMode.BLOCKS_GEOGRID_AND_RADARGRID
+            kwargs['memory_mode'] = isce3.core.GeocodeMemoryMode.BlocksGeogridAndRadarGrid
 
         if self.rtc_upsampling is not None:
             kwargs['rtc_upsampling'] = self.rtc_upsampling
