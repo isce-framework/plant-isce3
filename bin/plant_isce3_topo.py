@@ -72,6 +72,10 @@ class PlantISCE3Topo(plant.PlantScript):
         radar_grid_ml = self._get_radar_grid(slc_obj,
                                              frequency_str)
 
+        print('radar grid:')
+        print('    length:', radar_grid_ml.length)
+        print('    width:', radar_grid_ml.width)
+
         ellipsoid = isce3.core.Ellipsoid()
 
         topo = isce3.geometry.Rdr2Geo(radar_grid_ml,

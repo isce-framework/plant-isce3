@@ -2,11 +2,12 @@
 
 import os
 import plant
-from osgeo import gdal
+# from osgeo import gdal
 import numpy as np
 from osgeo import osr
-import isce3
-from nisar.products.readers import SLC
+# import isce3
+from nisar.products.readers import open_product
+
 
 def get_parser():
     '''
@@ -40,16 +41,10 @@ class PlantISCE3Info(plant.PlantScript):
         '''
         self._get_coordinates_from_h5_file(self.input_file)
 
-        
     def _get_coordinates_from_h5_file(self, input_file):
         import shapely.wkt
-        polygon_subdataset=('//science/LSAR/identification/'
-                            'boundingPolygon')
-        polygon = plant.read_image(
-            f'HDF5:{input_file}:'
-            f'{polygon_subdataset}').image[0, 0]
-        if hasattr(polygon, 'decode'):
-            polygon = polygon.decode()
+        nisar_product_obj = open_product(input_file)
+        polygon = nisar_product_obj.identification.boundingPolygon
         bounds = shapely.wkt.loads(polygon).bounds
         lat_arr = [bounds[1], bounds[3]]
         lon_arr = [bounds[2], bounds[0]]
@@ -78,7 +73,8 @@ class PlantISCE3Info(plant.PlantScript):
             x_max = np.nan
             for i in range(2):
                 for j in range(2):
-                    y, x = lat_lon_to_projected(lat_arr[i], lon_arr[j], self.epsg)
+                    y, x = lat_lon_to_projected(lat_arr[i], lon_arr[j],
+                                                self.epsg)
                     if plant.isnan(y_min) or y < y_min:
                         y_min = y
                     if plant.isnan(y_max) or y > y_max:
@@ -90,7 +86,8 @@ class PlantISCE3Info(plant.PlantScript):
 
             projected_lat_arr = [y_min, y_max]
             projected_lon_arr = [x_min, x_max]
-            projected_bbox = plant.get_bbox(projected_lat_arr, projected_lon_arr)
+            projected_bbox = plant.get_bbox(projected_lat_arr,
+                                            projected_lon_arr)
             coord_str = ('bbox parameter: -b %.0f %.0f %.0f %.0f'
                          % (projected_bbox[0], projected_bbox[1],
                             projected_bbox[2], projected_bbox[3]))
@@ -148,6 +145,7 @@ def main(argv=None):
         self_obj = PlantISCE3Info(parser, argv)
         ret = self_obj.run()
         return ret
+
 
 if __name__ == '__main__':
     main()

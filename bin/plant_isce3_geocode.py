@@ -9,6 +9,7 @@ from nisar.products.readers import SLC
 
 PSP_NULL = 0
 
+
 def get_parser():
     '''
     Command line parser.
@@ -28,7 +29,6 @@ def get_parser():
                         dest='input_raster',
                         type=str,
                         help='Input raster.')
-
 
     parser_transform_input_raster = parser.add_mutually_exclusive_group()
     parser_transform_input_raster.add_argument(
@@ -117,18 +117,19 @@ def get_parser():
                         help='Compute stats (min, max, mean, and stddev)')
 
     parser_az_baseband_doppler = parser.add_mutually_exclusive_group()
-    parser_az_baseband_doppler.add_argument('--az_baseband_doppler',
-                                action='store_true',
-                                default=None,
-                                dest='flag_az_baseband_doppler',
-                                help='Baseband Doppler before interpolation/averaging')
+    parser_az_baseband_doppler.add_argument(
+        '--az_baseband_doppler',
+        action='store_true',
+        default=None,
+        dest='flag_az_baseband_doppler',
+        help='Baseband Doppler before interpolation/averaging')
 
-    parser_az_baseband_doppler.add_argument('--no-az_baseband_doppler',
-                                action='store_false',
-                                dest='flag_az_baseband_doppler',
-                                help='Do not baseband Doppler before interpolation/'
-                                            'averaging')
-
+    parser_az_baseband_doppler.add_argument(
+        '--no-az_baseband_doppler',
+        action='store_false',
+        dest='flag_az_baseband_doppler',
+        help='Do not baseband Doppler before interpolation/'
+             ' averaging')
 
     parser_flatten = parser.add_mutually_exclusive_group()
     parser_flatten.add_argument('--flatten',
@@ -142,8 +143,6 @@ def get_parser():
                                 dest='flatten',
                                 help='Do not apply phase flattening')
 
-
-
     parser_output_mode = parser.add_mutually_exclusive_group()
     parser_output_mode.add_argument('--point',
                                     '--interp',
@@ -155,8 +154,8 @@ def get_parser():
                                     '--interp-gamma-naught',
                                     action='store_true',
                                     dest='output_mode_interp_gamma_naught',
-                                    help='Use interp mode and apply radiometric'
-                                    ' terrain correction')
+                                    help='Use interp mode and apply'
+                                    ' radiometric terrain correction')
 
     parser_output_mode.add_argument('--area',
                                     '--area-proj',
@@ -195,8 +194,7 @@ def get_parser():
                         "'gamma-naught-area-projection' "
                         # "'gamma-naught-ulander' "
                         "(default: %(default)s)",
-                        default=None)
-
+                        default='gamma-naught-area-projection')
 
     parser.add_argument('--native-doppler',
                         dest='native_doppler',
@@ -436,17 +434,17 @@ class PlantISCE3Geocode(plant.PlantScript):
             geo = isce3.geocode.GeocodeCFloat64()
         else:
             err_str = 'Unsupported raster type for geocoding'
-            error_channel.log(err_str)
+            # error_channel.log(err_str)
             raise NotImplementedError(err_str)
 
         # init geocode members
         geo.orbit = orbit
         geo.ellipsoid = ellipsoid
-    
+
         dem_raster = isce3.io.Raster(self.dem_file)
         if self.epsg is None:
             if dem_raster.get_epsg() == 0 or dem_raster.get_epsg() < -9000:
-                dem_raster.set_epsg(4326);
+                dem_raster.set_epsg(4326)
             self.epsg = dem_raster.get_epsg()
 
         proj_win_from_dem = None
@@ -461,11 +459,11 @@ class PlantISCE3Geocode(plant.PlantScript):
         lat_size = self.lat_size if plant.isvalid(self.lat_size) else -9999
         lon_size = self.lon_size if plant.isvalid(self.lon_size) else -9999
         y0_orig = self.lat_arr[1]
-        if plant.isvalid(y0_orig) and plant.isvalid(self.step_lat):
-            y0_orig = y0_orig + abs(self.step_lat)/2.0
+        # if plant.isvalid(y0_orig) and plant.isvalid(self.step_lat):
+        #     y0_orig = y0_orig + abs(self.step_lat)/2.0
         x0_orig = self.lon_arr[0]
-        if plant.isvalid(x0_orig) and plant.isvalid(self.step_lon):
-            x0_orig = x0_orig - self.step_lon/2.0
+        # if plant.isvalid(x0_orig) and plant.isvalid(self.step_lon):
+        #     x0_orig = x0_orig - self.step_lon/2.0
 
         print(f'x0_orig: {x0_orig}')
         print(f'y0_orig: {y0_orig}')
@@ -484,8 +482,8 @@ class PlantISCE3Geocode(plant.PlantScript):
 
         geo.update_geogrid(radar_grid, dem_raster)
 
-        x0 = geo.geogrid_start_x+geo.geogrid_spacing_x/2.0
-        y0 = geo.geogrid_start_y+geo.geogrid_spacing_y/2.0
+        x0 = geo.geogrid_start_x  # +geo.geogrid_spacing_x/2.0
+        y0 = geo.geogrid_start_y  # +geo.geogrid_spacing_y/2.0
         dx = geo.geogrid_spacing_x
         dy = geo.geogrid_spacing_y
         geogrid_width = abs(geo.geogrid_width)
@@ -496,7 +494,7 @@ class PlantISCE3Geocode(plant.PlantScript):
         self.lat_size = geogrid_length
         self.step_lat = -dy
         self.step_lon = dx
-    
+
         output_dir = os.path.dirname(self.output_file)
         if output_dir and not os.path.isdir(output_dir):
             os.makedirs(output_dir)
@@ -511,8 +509,8 @@ class PlantISCE3Geocode(plant.PlantScript):
         elif self.flag_gslc:
             self.exponent = 1
             output_dtype = input_dtype
-            native_doppler = slc_obj.getDopplerCentroid()
-            product_type = 'GSLC'
+            # native_doppler = slc_obj.getDopplerCentroid()
+            # product_type = 'GSLC'
             if self.interp_method is None:
                 self.interp_method = 'sinc'
             if self.flag_az_baseband_doppler is None:
@@ -524,8 +522,8 @@ class PlantISCE3Geocode(plant.PlantScript):
         else:
             # exponent = 2
             # output_dtype = gdal.GDT_Float32
-            native_doppler = isce3.core.LUT2d()
-            product_type = 'GCOV'
+            # native_doppler = isce3.core.LUT2d()
+            # product_type = 'GCOV'
             if self.interp_method is None:
                 self.interp_method = 'biquintic'
 
@@ -585,7 +583,7 @@ class PlantISCE3Geocode(plant.PlantScript):
             print('*** output dtype: cfloat32')
         elif output_dtype == gdal.GDT_CFloat64:
             print('*** output dtype: cfloat64')
- 
+
         nbands = input_raster_obj.num_bands
         self.print(f'*** nbands: {nbands}')
 
@@ -606,7 +604,7 @@ class PlantISCE3Geocode(plant.PlantScript):
             self.lat_size,
             nbands,
             output_dtype,
-            "ENVI");
+            "ENVI")
 
         # self.out_off_diag_terms = None
         out_off_diag_terms_obj = None
@@ -623,13 +621,15 @@ class PlantISCE3Geocode(plant.PlantScript):
                 out_off_diag_terms_obj = self._get_raster(
                     self.out_off_diag_terms,
                     gdal_dtype=gdal.GDT_CFloat32,
-                    nbands = nbands_off_diag_terms)
+                    nbands=nbands_off_diag_terms)
 
         print('*** out geo rtc:', self.out_geo_rtc)
         out_geo_nlooks_obj = self._get_raster(self.out_geo_nlooks)
         out_geo_rtc_obj = self._get_raster(self.out_geo_rtc)
-        # out_geo_local_inc_angle_obj = self._get_raster(self.out_geo_local_inc_angle)
-        out_geo_rtc_anf_to_sigma0_obj = self._get_raster(self.out_geo_rtc_anf_to_sigma0)
+        # out_geo_local_inc_angle_obj = self._get_raster(
+        # self.out_geo_local_inc_angle)
+        out_geo_rtc_anf_to_sigma0_obj = self._get_raster(
+            self.out_geo_rtc_anf_to_sigma0)
 
         output_rtc_obj = self._get_raster(self.output_rtc,
                                           length=radar_grid.length,
@@ -648,7 +648,8 @@ class PlantISCE3Geocode(plant.PlantScript):
         elif self.memory_mode == 'blocks-geogrid':
             kwargs['memory_mode'] = isce3.core.GeocodeMemoryMode.BlocksGeogrid
         elif self.memory_mode == 'blocks-geogrid-and-radargrid':
-            kwargs['memory_mode'] = isce3.core.GeocodeMemoryMode.BlocksGeogridAndRadarGrid
+            kwargs['memory_mode'] = \
+                isce3.core.GeocodeMemoryMode.BlocksGeogridAndRadarGrid
 
         if self.rtc_upsampling is not None:
             kwargs['rtc_upsampling'] = self.rtc_upsampling
@@ -676,27 +677,29 @@ class PlantISCE3Geocode(plant.PlantScript):
         else:
             offset_rg_obj = None
 
-        flag_rtc_bilinear_distribution = (self.terrain_correction_type is not None and
-                                          (('DAVID' in self.terrain_correction_type.upper() and
-                                            'SMALL' in self.terrain_correction_type.upper()) or
-                                           ('BILINEAR' in self.terrain_correction_type.upper() and
-                                            'DISTR' in self.terrain_correction_type.upper())))
-        print('flag_rtc_bilinear_distribution:', flag_rtc_bilinear_distribution)
+        flag_rtc_bilinear_distribution = (
+            self.terrain_correction_type is not None and
+            (('DAVID' in self.terrain_correction_type.upper() and
+             'SMALL' in self.terrain_correction_type.upper()) or
+             ('BILINEAR' in self.terrain_correction_type.upper() and
+             'DISTR' in self.terrain_correction_type.upper())))
 
-        flag_rtc_area_proj = ((self.terrain_correction_type is not None and
-                               'AREA' in self.terrain_correction_type.upper() and
-                               'PROJ' in self.terrain_correction_type.upper()) or
-                              self.output_mode_area_gamma_naught or
-                              self.output_mode_interp_gamma_naught)
-    
-        print('flag_rtc_area_proj:', flag_rtc_area_proj)
+        flag_rtc_area_proj = (
+            (self.terrain_correction_type is not None and
+             'AREA' in self.terrain_correction_type.upper() and
+             'PROJ' in self.terrain_correction_type.upper()) or
+            self.output_mode_area_gamma_naught or
+            self.output_mode_interp_gamma_naught)
 
         if flag_rtc_bilinear_distribution:
-            kwargs['rtc_algorithm'] = isce3.geometry.RtcAlgorithm.RTC_BILINEAR_DISTRIBUTION
+            kwargs['rtc_algorithm'] = \
+                isce3.geometry.RtcAlgorithm.RTC_BILINEAR_DISTRIBUTION
         elif flag_rtc_area_proj:
-            kwargs['rtc_algorithm'] = isce3.geometry.RtcAlgorithm.RTC_AREA_PROJECTION
+            kwargs['rtc_algorithm'] = \
+                isce3.geometry.RtcAlgorithm.RTC_AREA_PROJECTION
         else:
-            kwargs['rtc_algorithm'] = isce3.geometry.RtcAlgorithm.RTC_AREA_PROJECTION
+            kwargs['rtc_algorithm'] = \
+                isce3.geometry.RtcAlgorithm.RTC_AREA_PROJECTION
 
         flag_output_terrain_radimetry_is_sigma = \
             (self.output_terrain_radiometry is not None and
@@ -705,130 +708,8 @@ class PlantISCE3Geocode(plant.PlantScript):
         if (out_geo_rtc_anf_to_sigma0_obj and
                 flag_output_terrain_radimetry_is_sigma):
             self.print('ERROR RTC ANF from gamma0 to sigma0 is not implemented'
-                        ' for output terrain radiometry as sigma0')
+                       ' for output terrain radiometry as sigma0')
             return
-
-        if out_geo_rtc_anf_to_sigma0_obj:
-            rtc_kwargs = kwargs.copy()
-            rtc_kwargs['rtc_area_mode'] = isce3.geometry.RtcAreaMode.AREA
-            rtc_kwargs['output_terrain_radiometry'] = \
-                isce3.geometry.RtcOutputTerrainRadiometry.GAMMA_NAUGHT
-            # if self.rtc_upsampling is not None:
-            #     rtc_kwargs['geogrid_upsampling'] = self.rtc_upsampling
-            #     kwargs['rtc_upsampling'] = self.rtc_upsampling
-            if 'rtc_upsampling' in rtc_kwargs:
-                rtc_kwargs.pop('rtc_upsampling')
-                rtc_kwargs['geogrid_upsampling'] = kwargs['rtc_upsampling']
-
-            if self.memory_mode == 'single-block':
-                rtc_kwargs['rtc_memory_mode'] = isce3.geocode.rtcMemoryMode.SINGLE_BLOCK
-            elif (self.memory_mode == 'blocks-geogrid' or
-                    self.memory_mode == 'blocks-geogrid-and-radargrid'):
-                rtc_kwargs['rtc_memory_mode'] = isce3.geocode.rtcMemoryMode.BLOCKS_GEOGRID
-
-            # Create Geocode object for RTC
-            geo_rtc = isce3.geocode.GeocodeFloat32()
-            geo_rtc.orbit = orbit
-            geo_rtc.ellipsoid = ellipsoid
-            geo_rtc.doppler = doppler
-            geo_rtc.threshold_geo2rdr = self.geo2rdr_threshold
-            geo_rtc.numiter_geo2rdr = self.geo2rdr_num_iter
-            geo_rtc.geogrid(geo.geogrid_start_x,
-                            geo.geogrid_start_y,
-                            geo.geogrid_spacing_x,
-                            geo.geogrid_spacing_y,
-                            int(geo.geogrid_width),
-                            int(geo.geogrid_length),
-                            self.epsg)
-
-            temp_rtc_filename = plant.get_temporary_file(append=True, ext='bin')
-            temp_rtc_raster_obj = self._get_raster(temp_rtc_filename,
-                                                   length=radar_grid.length,
-                                                   width=radar_grid.width)
-
-            # Compute gamma0 area
-            print('computing gamma0 area')
-            isce3.geometry.compute_rtc(radar_grid,
-                                       orbit,
-                                       doppler,
-                                       dem_raster,
-                                       temp_rtc_raster_obj,
-                                       **rtc_kwargs)
-
-            try:
-                temp_rtc_raster_obj.close_dataset()
-            except:
-                pass
-            del temp_rtc_raster_obj
-            temp_rtc_raster_obj = isce3.io.Raster(temp_rtc_filename)
-
-            geo_rtc.geocode(radar_grid,
-                            temp_rtc_raster_obj,
-                            out_geo_rtc_anf_to_sigma0_obj,
-                            dem_raster,
-                            geogrid_upsampling=self.geogrid_upsampling,
-                            exponent=self.exponent,
-                            dem_interp_method=interp_method,
-                            flag_apply_rtc=False,
-                            **kwargs)
-            try:
-                out_geo_rtc_anf_to_sigma0_obj.close_dataset()
-            except:
-                pass
-            del out_geo_rtc_anf_to_sigma0_obj
-
-            # Compute sigma0 area
-            del temp_rtc_raster_obj
-            temp_rtc_raster_obj = self._get_raster(temp_rtc_filename,
-                                                   length=radar_grid.length,
-                                                   width=radar_grid.width)
-            print('computing sigma0 area')
-            rtc_kwargs['output_terrain_radiometry'] = \
-                isce3.geometry.RtcOutputTerrainRadiometry.SIGMA_NAUGHT
-            isce3.geometry.compute_rtc(radar_grid,
-                                       orbit,
-                                       doppler,
-                                       dem_raster,
-                                       temp_rtc_raster_obj,
-                                       **rtc_kwargs)
-
-            try:
-                temp_rtc_raster_obj.close_dataset()
-            except:
-                pass
-            del temp_rtc_raster_obj
-            temp_rtc_raster_obj = isce3.io.Raster(temp_rtc_filename)
-
-            temp_geo_rtc_sigma0_filename =  plant.get_temporary_file(append=True,
-                                                                     ext='bin')
-
-            temp_geo_rtc_sigma0_obj = self._get_raster(temp_geo_rtc_sigma0_filename)
-            geo_rtc.geocode(radar_grid,
-                            temp_rtc_raster_obj,
-                            temp_geo_rtc_sigma0_obj,
-                            dem_raster,
-                            geogrid_upsampling=self.geogrid_upsampling,
-                            exponent=self.exponent,
-                            dem_interp_method=interp_method,
-                            flag_apply_rtc=False,
-                            **kwargs)
-            try:
-                temp_geo_rtc_sigma0_obj.close_dataset()
-            except:
-                pass
-            
-            del temp_geo_rtc_sigma0_obj
-
-            # Compute ratio: gamma0 area / sigma0 area
-            print('computing ratio: gamma0 area / sigma0 area')
-            plant.util(self.out_geo_rtc_anf_to_sigma0,
-                       temp_geo_rtc_sigma0_filename,
-                       div=True,
-                       output_file = self.out_geo_rtc_anf_to_sigma0,
-                       force=True)
-            print('done computing ratio: gamma0 area / sigma0 area')
-            plant.append_output_file(self.out_geo_rtc_anf_to_sigma0)
-            ret_dict['out_geo_rtc_anf_to_sigma0'] = self.out_geo_rtc_anf_to_sigma0
 
         if flag_output_terrain_radimetry_is_sigma:
             kwargs['output_terrain_radiometry'] = \
@@ -847,7 +728,6 @@ class PlantISCE3Geocode(plant.PlantScript):
         else:
             kwargs['input_terrain_radiometry'] = \
                 isce3.geometry.RtcInputTerrainRadiometry.BETA_NAUGHT
-
 
         if self.rtc_min_value_db is not None:
             kwargs['rtc_min_value_db'] = self.rtc_min_value_db
@@ -881,35 +761,42 @@ class PlantISCE3Geocode(plant.PlantScript):
         else:
             input_rtc_obj = None
 
-        flag_geocode_interp = (self.output_mode_interp or self.output_mode_interp_gamma_naught)
-        print('flag_geocode_interp:', flag_geocode_interp)
-        flag_geocode_area_proj = (self.output_mode_area or self.output_mode_area_gamma_naught)
-        print('flag_geocode_area_proj:', flag_geocode_area_proj)
+        flag_geocode_interp = (self.output_mode_interp or
+                               self.output_mode_interp_gamma_naught)
+        # print('flag_geocode_interp:', flag_geocode_interp)
+        flag_geocode_area_proj = (self.output_mode_area or
+                                  self.output_mode_area_gamma_naught)
+        # print('flag_geocode_area_proj:', flag_geocode_area_proj)
 
         if flag_geocode_area_proj or not flag_geocode_interp:
-            kwargs['output_mode'] = isce3.geocode.GeocodeOutputMode.AREA_PROJECTION
+            kwargs['output_mode'] = \
+                isce3.geocode.GeocodeOutputMode.AREA_PROJECTION
         else:
-            kwargs['output_mode'] = isce3.geocode.GeocodeOutputMode.INTERP
+            kwargs['output_mode'] = \
+                isce3.geocode.GeocodeOutputMode.INTERP
 
-        kwargs['flag_apply_rtc'] = flag_rtc_bilinear_distribution or flag_rtc_area_proj
+        kwargs['flag_apply_rtc'] = (flag_rtc_bilinear_distribution or
+                                    flag_rtc_area_proj)
 
         if self.flag_compute_stats:
             kwargs['compute_stats'] = self.flag_compute_stats
-
 
         if flag_geocode_interp:
             geo_raster_rdr_dem_width = self.lon_size
             geo_raster_rdr_dem_length = self.lat_size
         else:
-            geo_raster_rdr_dem_width = self.lon_size * self.geogrid_upsampling + 1
-            geo_raster_rdr_dem_length = self.lat_size * self.geogrid_upsampling + 1
+            geo_raster_rdr_dem_width = (self.lon_size *
+                                        self.geogrid_upsampling + 1)
+            geo_raster_rdr_dem_length = (self.lat_size *
+                                         self.geogrid_upsampling + 1)
 
         out_geo_vertices_obj = self._get_raster(
             self.out_geo_vertices,
             width=geo_raster_rdr_dem_width,
             length=geo_raster_rdr_dem_length,
             nbands=2)
-        out_dem_vertices_obj = self._get_raster(self.out_dem_vertices,
+        out_dem_vertices_obj = self._get_raster(
+            self.out_dem_vertices,
             width=geo_raster_rdr_dem_width,
             length=geo_raster_rdr_dem_length,
             nbands=1)
@@ -919,10 +806,11 @@ class PlantISCE3Geocode(plant.PlantScript):
             kwargs['out_geo_local_inc_angle'] = out_geo_local_inc_angle_obj,
 
         if out_geo_rtc_anf_to_sigma0_obj:
-            kwargs['out_geo_rtc_anf_to_sigma0'] = out_geo_rtc_anf_to_sigma0_obj,
+            kwargs['out_geo_rtc_anf_to_sigma0'] =
+                out_geo_rtc_anf_to_sigma0_obj,
         '''
 
-        print('geocode kwargs:', kwargs)
+        # print('geocode kwargs:', kwargs)
         geo.geocode(radar_grid,
                     input_raster_obj,
                     output_raster_obj,
@@ -933,6 +821,7 @@ class PlantISCE3Geocode(plant.PlantScript):
                     out_geo_dem=out_dem_vertices_obj,
                     out_geo_nlooks=out_geo_nlooks_obj,
                     out_geo_rtc=out_geo_rtc_obj,
+                    out_geo_rtc_gamma0_to_sigma0=out_geo_rtc_anf_to_sigma0_obj,
                     input_rtc=input_rtc_obj,
                     output_rtc=output_rtc_obj,
                     dem_interp_method=interp_method,
@@ -962,7 +851,7 @@ class PlantISCE3Geocode(plant.PlantScript):
         if self.out_geo_nlooks:
             del out_geo_nlooks_obj
             plant.append_output_file(self.out_geo_nlooks)
-            ret_dict['out_geo_nlooks'] = self.out_geo_nlooks            
+            ret_dict['out_geo_nlooks'] = self.out_geo_nlooks
         if self.out_geo_rtc:
             del out_geo_rtc_obj
             plant.append_output_file(self.out_geo_rtc)
@@ -976,13 +865,29 @@ class PlantISCE3Geocode(plant.PlantScript):
         if self.output_rtc:
             del output_rtc_obj
             plant.append_output_file(self.output_rtc)
-            ret_dict['out_rtc'] = self.output_rtc
+            ret_dict['output_rtc'] = self.output_rtc
 
         ret_dict['output_file'] = self.output_file
         plant.append_output_file(self.output_file)
 
         if self.covariance_matrix:
             self._generate_cov_matrix(frequency_str)
+
+        for output_file in ret_dict.values():
+            # print('output file:', output_file)
+            expected_output_format = plant.get_output_format(output_file)
+            image_obj = plant.read_image(output_file)
+            actual_output_format = image_obj.file_format
+            if expected_output_format != actual_output_format:
+                plant.util(output_file, output_file=output_file,
+                           output_format=expected_output_format,
+                           force=True)
+                if actual_output_format != 'ENVI':
+                    continue
+                envi_header = plant.get_envi_header(output_file)
+                if os.path.isfile(envi_header):
+                    os.remove(envi_header)
+
         return ret_dict
 
     def _generate_cov_matrix(self, frequency_str):
@@ -1007,29 +912,36 @@ class PlantISCE3Geocode(plant.PlantScript):
                     print('band name: ', band_name)
                     list_of_polarizations.append(band_name)
             else:
-                pol_key = f'//science/LSAR/RSLC/swaths/frequency{frequency_str}/listOfPolarizations'
+                pol_key = ('//science/LSAR/RSLC/swaths/'
+                           f'frequency{frequency_str}/listOfPolarizations')
                 flag_error = False
                 try:
-                    list_of_polarizations = plant.read_image(f'HDF5:{self.input_file}:{pol_key}').image[0]
+                    list_of_polarizations = plant.read_image(
+                        f'HDF5:{self.input_file}:{pol_key}').image[0]
                 except:
                     flag_error = True
                 if flag_error:
-                    pol_key = f'//science/LSAR/SLC/swaths/frequency{frequency_str}/listOfPolarizations'
-                    list_of_polarizations = plant.read_image(f'HDF5:{self.input_file}:{pol_key}').image[0]
+                    pol_key = (f'//science/LSAR/SLC/swaths/'
+                               'frequency{frequency_str}/listOfPolarizations')
+                    list_of_polarizations = plant.read_image(
+                        f'HDF5:{self.input_file}:{pol_key}').image[0]
 
             try:
-                list_of_polarizations = [p.upper() for p in list_of_polarizations]
+                list_of_polarizations = [p.upper()
+                                         for p in list_of_polarizations]
             except:
                 print('WARNING could not guess the list of input polarizations. Considering it'
                       f' as {list_of_polarizations}. Please use the parameter'
                       ' --list-of-polarizations to inform the correct order')
                 if self.input_raster:
-                    list_of_polarizations = ['HH', 'HV', 'VH', 'VV'][0:input_raster_obj.nbands]
+                    list_of_polarizations = \
+                        ['HH', 'HV', 'VH', 'VV'][0:input_raster_obj.nbands]
                 else:
                     nbands_orig = nbands
                     if self.flag_symmetrize:
                         nbands_orig += 1
-                    list_of_polarizations = ['HH', 'HV', 'VH', 'VV'][0:nbands_orig]
+                    list_of_polarizations = \
+                        ['HH', 'HV', 'VH', 'VV'][0:nbands_orig]
 
         print('list of input polarizations:', list_of_polarizations)
 
@@ -1038,8 +950,8 @@ class PlantISCE3Geocode(plant.PlantScript):
             print('list of processed polarizations:', list_of_polarizations)
         elif self.flag_symmetrize:
             vh_band = nbands - 1
-            print('WARNING could not guess the VH polarization band in RSLC file.'
-                  f' Considering it as RSLC band {vh_band}')
+            print('WARNING could not guess the VH polarization band in RSLC'
+                  f' file. Considering it as RSLC band {vh_band}')
             del list_of_polarizations[vh_band]
 
             print('list of processed polarizations:', list_of_polarizations)
@@ -1051,7 +963,8 @@ class PlantISCE3Geocode(plant.PlantScript):
 
         pol_map = []
         for b in range(nbands):
-            ind = output_list_of_polarizations.index(list_of_polarizations[b]) + 1
+            ind = output_list_of_polarizations.index(
+                list_of_polarizations[b]) + 1
             print('pol:', list_of_polarizations[b], ', C-matrix index: ', ind)
             pol_map.append(ind)
 
@@ -1064,33 +977,38 @@ class PlantISCE3Geocode(plant.PlantScript):
                     continue
 
                 flag_apply_c3_cross_pol_factor = (nbands == 3 and
-                                                  (out_band_1 == 2 or out_band_2 == 2))
+                                                  (out_band_1 == 2 or
+                                                   out_band_2 == 2))
 
                 # save diag terms
                 if band_2 == band_1:
                     image = np.copy(image_obj.get_image(band=band_1))
                     ind = plant.isnan(image)
                     if flag_apply_c3_cross_pol_factor:
-                        print(f'Applying 2x factor to C3 term: C{out_band_1}{out_band_2}')
+                        print(f'Applying 2x factor to C3 term:'
+                              f' C{out_band_1}{out_band_2}')
                         image *= 2
                     image[ind] = PSP_NULL
                     c_term_file = os.path.join(self.covariance_matrix,
-                                               f'C{out_band_1}{out_band_2}.bin')
+                                               f'C{out_band_1}{out_band_2}'
+                                               '.bin')
                     plant.save_image(image, c_term_file, force=self.force)
                     plant.append_output_file(c_term_file)
                     continue
 
                 image = image_off_diag_obj.get_image(band=band_index)
-                band_index += 1;
+                band_index += 1
 
                 # save off-diag real part
                 c_term_file = os.path.join(self.covariance_matrix,
-                                           f'C{out_band_1}{out_band_2}_real.bin')
+                                           f'C{out_band_1}{out_band_2}_real'
+                                           '.bin')
 
                 image_float = np.copy(np.real(image))
                 ind = plant.isnan(image_float)
                 if flag_apply_c3_cross_pol_factor:
-                    print(f'Applying sqrt(2) factor to C3 term: C{out_band_1}{out_band_2}_real')
+                    print(f'Applying sqrt(2) factor to C3 term:'
+                          ' C{out_band_1}{out_band_2}_real')
                     image_float *= np.sqrt(2)
                 image_float[ind] = PSP_NULL
 
@@ -1099,12 +1017,14 @@ class PlantISCE3Geocode(plant.PlantScript):
 
                 # save off-diag imaginary part
                 c_term_file = os.path.join(self.covariance_matrix,
-                                           f'C{out_band_1}{out_band_2}_imag.bin')
+                                           f'C{out_band_1}{out_band_2}_imag'
+                                           '.bin')
 
                 image_float = np.copy(np.imag(image))
                 ind = plant.isnan(image_float)
                 if flag_apply_c3_cross_pol_factor:
-                    print(f'Applying sqrt(2) factor to C3 term: C{out_band_1}{out_band_2}_imag')
+                    print('Applying sqrt(2) factor to C3 term:'
+                          f' C{out_band_1}{out_band_2}_imag')
                     image_float *= np.sqrt(2)
                 image_float[ind] = PSP_NULL
 
@@ -1117,7 +1037,6 @@ class PlantISCE3Geocode(plant.PlantScript):
                                 width=width,
                                 length=length,
                                 force=self.force)
-
 
     def _get_radar_grid(self, slc_obj, frequency_str):
         radar_grid = slc_obj.getRadarGrid(frequency_str)
@@ -1155,7 +1074,6 @@ class PlantISCE3Geocode(plant.PlantScript):
 
         return radar_grid_ml
 
-
     def _symmetrize_cross_pols(self, hv_ref, vh_ref):
         print(f'Symmetrizing: {hv_ref} and {vh_ref}')
         hv_raster_obj = isce3.io.Raster(hv_ref)
@@ -1174,7 +1092,6 @@ class PlantISCE3Geocode(plant.PlantScript):
             hv_raster_obj, vh_raster_obj, symmetrized_hv_raster_obj)
         del symmetrized_hv_raster_obj
         return temp_symmetrized_file
-
 
     def _get_symmetrized_input_raster(self, image_obj, temp_file,
                                       temp_symmetrized_file,
@@ -1207,10 +1124,10 @@ class PlantISCE3Geocode(plant.PlantScript):
                 image_obj.set_band(band, band=output_band)
                 output_band += 1
             if self.flag_symmetrize:
-                image_obj.set_nbands(image_obj.nbands - 1, realize_changes = False)
+                image_obj.set_nbands(image_obj.nbands - 1,
+                                     realize_changes=False)
             self.save_image(image_obj, temp_file, force=True,
                             output_format=output_format)
-
 
     def _get_input_raster_from_nisar_slc(self, input_raster):
         if self.input_key and self.input_key == 'B':
@@ -1249,13 +1166,13 @@ class PlantISCE3Geocode(plant.PlantScript):
                 temp_hv_file = plant.get_temporary_file(
                     append=True, suffix='_hv', ext='vrt')
                 plant.save_image(hv_obj, temp_hv_file, force=True,
-                    output_format='VRT')
+                                 output_format='VRT')
 
                 vh_obj = plant.read_image(input_raster, band=vh_band)
                 temp_vh_file = plant.get_temporary_file(
                     append=True, suffix='_vh', ext='vrt')
                 plant.save_image(vh_obj, temp_vh_file, force=True,
-                    output_format='VRT')
+                                 output_format='VRT')
 
                 temp_symmetrized_file = self._symmetrize_cross_pols(
                     temp_hv_file, temp_vh_file)
@@ -1270,7 +1187,7 @@ class PlantISCE3Geocode(plant.PlantScript):
                 self._get_symmetrized_input_raster(
                     image_obj, temp_file, temp_symmetrized_file,
                     hv_band=hv_band, vh_band=vh_band,
-                    output_format = 'TIFF')
+                    output_format='TIFF')
                 input_raster = temp_file
 
         else:
@@ -1312,48 +1229,6 @@ class PlantISCE3Geocode(plant.PlantScript):
         ret_dict['input_raster'] = input_raster
         ret_dict['image_obj'] = image_obj
         return ret_dict
-
-    def _get_coordinates_from_h5_file(self, input_file):
-        import shapely.wkt
-        polygon_subdataset=('//science/LSAR/identification/'
-                            'boundingPolygon')
-        polygon = plant.read_image(
-            f'HDF5:{input_file}:'
-            f'{polygon_subdataset}').image[0, 0]
-        if hasattr(polygon, 'decode'):
-            polygon = polygon.decode()
-        bounds = shapely.wkt.loads(polygon).bounds
-        if plant.isnan(self.lat_arr[0]) and self.step_lat > 0:
-            self.lat_arr[0] = bounds[1]
-        elif plant.isnan(self.lat_arr[0]) and self.step_lat < 0:
-            self.lat_arr[0] = bounds[3]
-
-        if plant.isnan(self.lat_arr[1]) and self.step_lat > 0:
-            self.lat_arr[1] = bounds[3]
-        elif plant.isnan(self.lat_arr[1]) and self.step_lat < 0:
-            self.lat_arr[1] = bounds[1]
-            
-        if plant.isnan(self.lon_arr[0]):
-            self.lon_arr[0] = bounds[0]
-        if plant.isnan(self.lon_arr[1]):
-            self.lon_arr[1] = bounds[2]
-
-        if plant.isnan(self.lat_size):
-            self.lat_size = int(np.round((self.lat_arr[1] -
-                                      self.lat_arr[0]) /
-                             self.step_lat))
-        if plant.isnan(self.lon_size):
-            self.lon_size = int(np.round((self.lon_arr[1] -
-                                      self.lon_arr[0]) /
-                             self.step_lon))
-        # lat_arr = [bounds[1], bounds[3]]
-        # lon_arr = [bounds[2], bounds[0]]
-        print('*** self.lat_arr: ', self.lat_arr)
-        print('*** self.step_lat: ', self.step_lat)
-        print('*** self.lon_arr: ', self.lon_arr)
-        print('*** self.step_lon: ', self.step_lon)
-        print('*** self.lat_size: ', self.lat_size)
-        print('*** self.lon_size: ', self.lon_size)
 
     def _get_doppler(self, slc_obj):
         # product, frequency_str
@@ -1398,6 +1273,7 @@ def main(argv=None):
         self_obj = PlantISCE3Geocode(parser, argv)
         ret = self_obj.run()
         return ret
+
 
 if __name__ == '__main__':
     main()
