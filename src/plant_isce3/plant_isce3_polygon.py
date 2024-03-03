@@ -121,7 +121,7 @@ def get_parser():
     return parser
 
 
-class PlantISCE3Polygon(plant.PlantScript):
+class PlantIsce3Polygon(plant.PlantScript):
 
     def __init__(self, parser, argv=None):
         '''
@@ -562,7 +562,7 @@ class PlantISCE3Polygon(plant.PlantScript):
 def main(argv=None):
     with plant.PlantLogger():
         parser = get_parser()
-        self_obj = PlantISCE3Polygon(parser, argv)
+        self_obj = PlantIsce3Polygon(parser, argv)
         ret = self_obj.run()
         return ret
 

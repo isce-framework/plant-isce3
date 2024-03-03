@@ -35,7 +35,7 @@ def get_parser():
     return parser
 
 
-class PlantISCE3Topo(plant.PlantScript):
+class PlantIsce3Topo(plant.PlantScript):
 
     def __init__(self, parser, argv=None):
         '''
@@ -145,7 +145,7 @@ class PlantISCE3Topo(plant.PlantScript):
 def main(argv=None):
     with plant.PlantLogger():
         parser = get_parser()
-        self_obj = PlantISCE3Topo(parser, argv)
+        self_obj = PlantIsce3Topo(parser, argv)
         ret = self_obj.run()
         return ret
 

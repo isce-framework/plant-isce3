@@ -358,7 +358,7 @@ def get_parser():
     return parser
 
 
-class PlantISCE3Geocode(plant.PlantScript):
+class PlantIsce3Geocode(plant.PlantScript):
 
     def __init__(self, parser, argv=None):
         '''
@@ -1270,7 +1270,7 @@ class PlantISCE3Geocode(plant.PlantScript):
 def main(argv=None):
     with plant.PlantLogger():
         parser = get_parser()
-        self_obj = PlantISCE3Geocode(parser, argv)
+        self_obj = PlantIsce3Geocode(parser, argv)
         ret = self_obj.run()
         return ret
 
