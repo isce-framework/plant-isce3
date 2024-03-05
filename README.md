@@ -42,6 +42,6 @@ python -m pip install .
 3.2. Or via environment path setup:
 
 ```bash
-export PLANT_ISCE3_HOME=$PWD/src
-export PATH=${PATH}:${PLANT_ISCE3_HOME}/src/plant_isce3
+export PYTHON_PATH=${PYTHON_PATH}:$PWD/src
+export PATH=${PATH}:$PWD/src/plant_isce3
 ```
