@@ -33,21 +33,15 @@ git clone https://github.com/isce-framework/plant-isce3.git
 cd plant-isce3
 ```
 
-3.1 Install PLAnT-ISCE3 via setup.py:
+3.1 Install PLAnT-ISCE3:
 
 ```bash
-python setup.py install
+python -m pip install .
 ```
 
-3.2 Or via pip:
+3.2. Or via environment path setup:
 
 ```bash
-pip install .
-```
-
-3.3. Or via environment path setup:
-
-```bash
-export PLANT_ISCE3_HOME=$PWD
-export PATH=${PATH}:${PLANT_ISCE3_HOME}/bin
+export PLANT_ISCE3_HOME=$PWD/src
+export PATH=${PATH}:${PLANT_ISCE3_HOME}/src/plant_isce3
 ```
