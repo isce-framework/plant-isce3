@@ -136,6 +136,8 @@ def point2epsg(lon, lat):
 
 
 def lat_lon_to_projected(north, east, epsg):
+    osr.UseExceptions()
+
     wgs84_coordinate_system = osr.SpatialReference()
     wgs84_coordinate_system.SetWellKnownGeogCS("WGS84")
     try:

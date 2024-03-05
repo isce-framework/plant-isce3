@@ -44,6 +44,12 @@ def get_parser():
                         type=str,
                         help='Total electron content file.')
 
+    parser.add_argument('--sas-output-file',
+                        '--sas-of',
+                        dest='sas_output_file',
+                        type=str,
+                        help='SAS output file.')
+
     parser.add_argument('--external-orbit',
                         '--external-orbit_file',
                         dest='external_orbit_file',
@@ -148,14 +154,19 @@ class PlantIsce3Runconfig(plant.PlantScript):
         # default pixel size
         # if self.step_lon is None and self.epsg != 4326:
         #     self.step_lon = 20
-        if self.step_lon is None:
+
+        if self.epsg == 4326 and not plant.isvalid(self.step_lon):
+            self.step_lon = plant.m_to_deg_lon(30.)
+        elif self.step_lon is None:
             self.step_lon = np.nan
+
+        if self.epsg == 4326 and not plant.isvalid(self.step_lat):
+            self.step_lat = plant.m_to_deg_lat(30.)
+        elif self.step_lat is None:
+            self.step_lat = np.nan
 
         # if self.step_lat is None and self.epsg != 4326:
         #     self.step_lat = -20
-        if self.step_lat is None:
-            self.step_lat = np.nan
-
         # default snap values
         # if (self.snap_x is None and self.epsg != 4326 and
         #         self.workflow_name.upper() == 'GCOV'):
@@ -214,6 +225,10 @@ class PlantIsce3Runconfig(plant.PlantScript):
         if self.snap_y:
             yf = snap_coord(yf, self.snap_x, 0, np.floor)
             y0 = snap_coord(y0, self.snap_x, 0, np.ceil)
+
+        if self.sas_output_file is None:
+            self.sas_output_file = (f'output_{self.workflow_name.lower()}/'
+                                    f'{self.workflow_name.lower()}.h5')
 
         print('=============================================================')
         self.print_runconfig(x0, y0, xf, yf, freq_a_dx, freq_a_dy, freq_b_dx,
@@ -424,8 +439,7 @@ class PlantIsce3Runconfig(plant.PlantScript):
         print('        product_path_group:', **kwargs)
         print(f'            product_path: output_{workflow_name}', **kwargs)
         print(f'            scratch_path: scratch_{workflow_name}', **kwargs)
-        print(f'            sas_output_file: output_{workflow_name}/'
-              f'{workflow_name}.h5', **kwargs)
+        print(f'            sas_output_file: {self.sas_output_file}', **kwargs)
         # print('            qa_output_dir: qa_{workflow_name}', **kwargs)
         print('        debug_level_group:', **kwargs)
         print('            debug_switch: false', **kwargs)

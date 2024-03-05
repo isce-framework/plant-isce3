@@ -42,6 +42,7 @@ class PlantIsce3Util(plant.PlantScript):
         h5_obj = h5py.File(self.input_file, 'r')
         polygon_dataset = '//science/LSAR/identification/boundingPolygon'
         polygon_str = str(h5_obj[polygon_dataset][()].decode('utf-8'))
+        h5_obj.close()
         polygon_str = polygon_str.replace('POLYGON', '')
         polygon_str_ref = ''
         while polygon_str_ref != polygon_str:

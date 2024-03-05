@@ -465,6 +465,11 @@ class PlantIsce3Geocode(plant.PlantScript):
         # if plant.isvalid(x0_orig) and plant.isvalid(self.step_lon):
         #     x0_orig = x0_orig - self.step_lon/2.0
 
+        if self.epsg == 4326 and not plant.isvalid(self.step_lon):
+            self.step_lon = plant.m_to_deg_lon(30.)
+        if self.epsg == 4326 and not plant.isvalid(self.step_lat):
+            self.step_lat = plant.m_to_deg_lat(30.)
+
         print(f'x0_orig: {x0_orig}')
         print(f'y0_orig: {y0_orig}')
         print(f'self.step_lon: {self.step_lon}')
