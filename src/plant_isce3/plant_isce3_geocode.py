@@ -358,7 +358,7 @@ def get_parser():
     return parser
 
 
-class PlantISCE3Geocode(plant.PlantScript):
+class PlantIsce3Geocode(plant.PlantScript):
 
     def __init__(self, parser, argv=None):
         '''
@@ -464,6 +464,11 @@ class PlantISCE3Geocode(plant.PlantScript):
         x0_orig = self.lon_arr[0]
         # if plant.isvalid(x0_orig) and plant.isvalid(self.step_lon):
         #     x0_orig = x0_orig - self.step_lon/2.0
+
+        if self.epsg == 4326 and not plant.isvalid(self.step_lon):
+            self.step_lon = plant.m_to_deg_lon(30.)
+        if self.epsg == 4326 and not plant.isvalid(self.step_lat):
+            self.step_lat = plant.m_to_deg_lat(30.)
 
         print(f'x0_orig: {x0_orig}')
         print(f'y0_orig: {y0_orig}')
@@ -1270,7 +1275,7 @@ class PlantISCE3Geocode(plant.PlantScript):
 def main(argv=None):
     with plant.PlantLogger():
         parser = get_parser()
-        self_obj = PlantISCE3Geocode(parser, argv)
+        self_obj = PlantIsce3Geocode(parser, argv)
         ret = self_obj.run()
         return ret
 
