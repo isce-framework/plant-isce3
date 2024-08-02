@@ -4,10 +4,153 @@ import time
 import plant_isce3
 import importlib
 from collections.abc import Sequence
+from nisar.products.readers import open_product
 import numpy as np
+import isce3
 
 import plant
 
+class PlantIsce3Script(plant.PlantScript):
+
+    def update_geogrid(self, radar_grid, dem_raster, geo=None,
+                       slc_obj=None):
+
+        if geo is None:
+            geo = isce3.geocode.GeocodeFloat32()
+            geo.orbit = slc_obj.getOrbit()
+            geo.ellipsoid = isce3.core.Ellipsoid()
+
+        width = self.plant_geogrid_obj.width
+        length = self.plant_geogrid_obj.length
+        x0_orig = self.plant_geogrid_obj.x0
+        y0_orig = self.plant_geogrid_obj.y0
+        step_x = self.plant_geogrid_obj.step_x
+        step_y = self.plant_geogrid_obj.step_y
+
+        if width is None:
+            width = -9999
+        if length is None:
+            length = -9999
+
+        if x0_orig is None:
+            x0_orig = np.nan
+        if y0_orig is None:
+            y0_orig = np.nan
+
+        if self.epsg == 4326 and not plant.isvalid(step_x):
+            step_x = plant.m_to_deg_lon(30.)
+        elif step_x is None:
+            step_x = np.nan
+
+        if self.epsg == 4326 and not plant.isvalid(step_y):
+            step_y = plant.m_to_deg_lat(30.)
+        elif step_y is None:
+            step_y = np.nan
+
+        geo.geogrid(x0_orig,
+                    y0_orig,
+                    step_x,
+                    step_y,
+                    width,
+                    length,
+                    self.epsg)
+
+        geo.update_geogrid(radar_grid, dem_raster)
+
+        print('*** x0:', self.plant_geogrid_obj.x0)
+        print('*** xf:', self.plant_geogrid_obj.xf)
+        print('*** y0:', self.plant_geogrid_obj.y0)
+        print('*** yf:', self.plant_geogrid_obj.yf)
+        print('*** step_x:', self.plant_geogrid_obj.step_x)
+        print('*** step_y:', self.plant_geogrid_obj.step_y)
+        print('*** length:', self.plant_geogrid_obj.length)
+        print('*** width:', self.plant_geogrid_obj.width)
+        print('*** self.epsg:', self.epsg)
+        projection = plant.epsg_to_wkt(self.epsg)
+        print('*** projection:', projection)
+
+        self.plant_geogrid_obj = plant.PlantGeogrid(
+            y0=geo.geogrid_start_y,
+            length=geo.geogrid_length,
+            x0=geo.geogrid_start_x,
+            width=geo.geogrid_width,
+            step_x=geo.geogrid_spacing_x,
+            step_y=-abs(geo.geogrid_spacing_y),
+            projection=projection)
+
+        print('*** x0 (updated):', self.plant_geogrid_obj.x0)
+        print('*** xf (updated):', self.plant_geogrid_obj.xf)
+        print('*** y0 (updated):', self.plant_geogrid_obj.y0)
+        print('*** yf (updated):', self.plant_geogrid_obj.yf)
+        print('*** step_x (updated):',
+              self.plant_geogrid_obj.step_x)
+        print('*** step_y (updated):',
+              self.plant_geogrid_obj.step_y)
+
+    def _get_input_raster_from_nisar_slc(self, input_raster,
+                                         frequency_str=None):
+
+        if frequency_str is None:
+            nisar_product_obj = open_product(self.input_file)
+            frequency_str = list(nisar_product_obj.polarizations.keys())[0]
+            del nisar_product_obj
+
+        if input_raster is not None:
+            flag_apply_transformation = \
+                self.plant_transform_obj.flag_apply_transformation()
+            image_obj = self.read_image(input_raster)
+
+            if flag_apply_transformation:
+                temp_file = plant.get_temporary_file(append=True,
+                                                     ext='vrt')
+                self.print(f'*** creating temporary file: {temp_file}')
+                self.save_image(image_obj, temp_file, force=True,
+                                output_format='VRT')
+                input_raster = temp_file
+        else:
+            raster_file = f'NISAR:{self.input_file}:{frequency_str}'
+            temp_file = plant.get_temporary_file(append=True,
+                                                 ext='vrt')
+            self.print(f'*** creating temporary file: {temp_file}')
+            image_obj = self.read_image(raster_file)
+            print('*** image_obj.nbands:', image_obj.nbands)
+            self.save_image(image_obj, temp_file, force=True,
+                            output_format='VRT')
+            input_raster = temp_file
+        ret_dict = {}
+        ret_dict['input_raster'] = input_raster
+        ret_dict['image_obj'] = image_obj
+        return ret_dict
+
+    def _get_radar_grid(self, slc_obj, frequency_str):
+        radar_grid = slc_obj.getRadarGrid(frequency_str)
+
+        if self.select_row is not None or self.select_col is not None:
+            self.plant_transform_obj.update_crop_window(
+                length_orig=radar_grid.length,
+                width_orig=radar_grid.width)
+            y0 = self.plant_transform_obj._offset_y
+            if y0 is None:
+                y0 = 0
+            x0 = self.plant_transform_obj._offset_x
+            if x0 is None:
+                x0 = 0
+            length = self.plant_transform_obj.length
+            if length is None:
+                length = radar_grid.length
+            width = self.plant_transform_obj.width
+            if width is None:
+                width = radar_grid.width
+            radar_grid = radar_grid.offset_and_resize(
+                y0, x0, length, width)
+
+        if (self.nlooks_az > 1 or self.nlooks_rg > 1):
+            radar_grid_ml = radar_grid.multilook(self.nlooks_az,
+                                                 self.nlooks_rg)
+        else:
+            radar_grid_ml = radar_grid
+
+        return radar_grid_ml
 
 def _get_output_dict_from_parser(parser, args, module_name):
     orig_index = []
@@ -69,17 +212,16 @@ def _get_output_dict_from_parser(parser, args, module_name):
             value_str = kwargs[output_key]
         else:
             value_str = args[output_key_index+1]
-        # print('*** here 1')
+
         output_str = f' {ret[0]} {value_str}'
         output_args.append(ret[0])
         output_args.append(value_str)
-        # print('*** here 2')
+
     elif (flag_output and
           not any([key in args_keys
                    for key in output_dir_keys]) and
           module_name != 'plant_display'):
-        # mem_output_str = 'MEM:output.bin'
-        # temp_file = plant.get_temporary_file(ext='.vrt')
+
         mem_output_str = 'MEM:'+plant.get_temporary_file()
         output_str = f' {ret[0]} {mem_output_str}'
         output_args.append(ret[0])
@@ -97,15 +239,12 @@ def _get_output_dict_from_parser(parser, args, module_name):
 
     return output_dict
 
-
 def execute(command,
             verbose=True,
-            # level=1,
+
             return_time=False,
             ignore_exception=False):
-    '''
-    subprocess execution wrapper
-    '''
+
     if not isinstance(command, list):
         command_vector = plant.get_command_vector(command)
     else:
@@ -124,7 +263,6 @@ def execute(command,
 
     module_obj = importlib.import_module('plant_isce3.'+module_name)
 
-    # current_script = plant.plant_config.current_script
     method_to_execute = getattr(module_obj, 'main')
 
     if plant.plant_config.logger_obj is None:
@@ -176,7 +314,7 @@ def execute(command,
                 error_message = plant.get_error_message()
         finally:
             sys.argv = original_sys_argv
-        # print('*** after executing...')
+
         if (flag_error and not ignore_exception and
                 error_message and 'ERROR' in error_message):
             print(error_message)
@@ -198,7 +336,6 @@ def execute(command,
         if verbose:
             print(f'PLAnT (API-completed) - {module_name}.py {arguments}'
                   f'{ret_str}')
-
 
 class ModuleWrapper(object):
 
@@ -297,7 +434,6 @@ class ModuleWrapper(object):
                     flag_valid_argument = True
                     continue
 
-                # store True
                 ret_store_true = plant.get_args_from_argparser(
                     parser,
                     store_true_action=True,
@@ -325,15 +461,11 @@ class ModuleWrapper(object):
                         dest=dest_store_true[0])
                     if arg_store_false:
                         kwargs_str += f' {arg_store_false[0]}'
-                    # add_if_flag_store_false = True
+
                 if ret_store_true:
                     flag_valid_argument = True
                     continue
-                # elif ret_store_true:
-                #      flag_valid_argument = True
-                #     continue
 
-                # store False
                 ret_store_false = plant.get_args_from_argparser(
                     parser,
                     store_true_action=False,
@@ -341,10 +473,10 @@ class ModuleWrapper(object):
                     store_action=False,
                     help_action=False,
                     **kwargs_argparser)
-                # add_if_flag_store_true = False
+
                 if ret_store_false and bool(value):
                     kwargs_str += f' {ret_store_false[0]}'
-                    # continue
+
                 elif ret_store_false:
                     dest_store_false = plant.get_args_from_argparser(
                         parser,
@@ -364,7 +496,6 @@ class ModuleWrapper(object):
                     if arg_store_true:
                         kwargs_str += f' {arg_store_true[0]}'
 
-                #    add_if_flag_store_true = True
                 if ret_store_false:
                     flag_valid_argument = True
 
@@ -392,7 +523,7 @@ class ModuleWrapper(object):
 
             arg_id = str(id(arg))
             plant.plant_config.variables[arg_id] = arg
-            # variables_to_pop.append(arg_id)
+
             args_str += f' MEM:{arg_id}'
         return args_str
 

@@ -2,6 +2,7 @@
 
 import os
 import plant
+import plant_isce3
 import numpy as np
 from osgeo import gdal
 import random
@@ -9,9 +10,7 @@ import isce3
 from nisar.products.readers import SLC
 
 def get_parser():
-    '''
-    Command line parser.
-    '''
+
     descr = ('')
     epilog = ''
     parser = plant.argparse(epilog=epilog,
@@ -64,7 +63,6 @@ def get_parser():
                         dest='save_weights',
                         help='Save area projection weights')
 
-    # arguments
     parser_output_mode = parser.add_mutually_exclusive_group()
     parser_output_mode.add_argument('--area',
                                     action='store_true',
@@ -82,7 +80,7 @@ def get_parser():
                         default=False,
                         action='store_true',
                         help='Native Doppler.')
-    
+
     parser.add_argument('--upsampling',
                         dest='geogrid_upsampling',
                         type=float,
@@ -99,14 +97,13 @@ def get_parser():
                         type=str,
                         help='Input data radiometry. Options:'
                         'beta or sigma-ellipsoid')
-    
+
     parser.add_argument('--output-radiometry',
                         '--output-terrain-radiometry',
                         dest='output_terrain_radiometry',
                         type=str,
                         help='Output data radiometry. Options:'
                         'sigma-naught or gamma-naught')
-
 
     parser.add_argument('--in-geo-edges',
                         dest='in_geo_edges',
@@ -120,27 +117,26 @@ def get_parser():
 
     return parser
 
-
-class PlantIsce3Polygon(plant.PlantScript):
+class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
 
     def __init__(self, parser, argv=None):
-        '''
-        class initialization
-        '''
+
         super().__init__(parser, argv)
 
     def run(self):
-        '''
-        run main method
-        '''
+
         if not self.plant_transform_obj.geo_polygon:
             self.print('ERROR one the following argument is required:'
                        f' {self.plant_transform_obj.geo_polygon}')
             return
-        if self.input_key and self.input_key == 'B':
-            frequency_str = 'B'
-        else:
-            frequency_str = 'A'
+
+        ret = self.overwrite_file_check(self.output_file)
+        if not ret:
+            self.print('Operation cancelled.', 1)
+            return
+
+        nisar_product_obj = open_product(self.input_file)
+        frequency_str = list(nisar_product_obj.polarizations.keys())[0]
 
         ret_dict = self._get_input_raster_from_nisar_slc(
             self.input_raster)
@@ -157,7 +153,6 @@ class PlantIsce3Polygon(plant.PlantScript):
         ellipsoid = isce3.core.Ellipsoid()
         doppler = self._get_doppler(slc_obj)
 
-        # Get radar grid
         radar_grid_ml = self._get_radar_grid(slc_obj,
                                              frequency_str)
 
@@ -504,60 +499,16 @@ class PlantIsce3Polygon(plant.PlantScript):
                 y0, x0, length, width)
         return radar_grid_ml
 
-    def _get_input_raster_from_nisar_slc(self, input_raster):
-        if self.input_key and self.input_key == 'B':
-            frequency_str = 'B'
-        else:
-            frequency_str = 'A'
-        if input_raster is not None:
-
-            plant_transform_obj = self.plant_transform_obj.copy()
-            plant_transform_obj.polygon = None
-            plant_transform_obj.geo_polygon = None
-
-            flag_apply_transformation = \
-                plant_transform_obj.flag_apply_transformation()
-
-            image_obj = self.read_image(input_raster)
-            if flag_apply_transformation:
-                temp_file = plant.get_temporary_file(append=True,
-                                                     ext='vrt')
-                for b in range(image_obj.nbands):
-                    band = image_obj.get_band(band=b)
-                    image_obj.set_band(band, band=b)
-                self.print(f'*** creating temporary file: {temp_file}')
-                self.save_image(image_obj, temp_file, force=True,
-                                output_format='VRT')
-                input_raster = temp_file
-        else:
-            raster_file = f'NISAR:{self.input_file}:{frequency_str}'
-            temp_file = plant.get_temporary_file(append=True,
-                                                 ext='vrt')
-            self.print(f'*** creating temporary file: {temp_file}')
-            image_obj = self.read_image(raster_file)
-            for b in range(image_obj.nbands):
-                band = image_obj.get_band(band=b)
-                image_obj.set_band(band, band=b)
-            self.save_image(image_obj, temp_file, force=True,
-                            output_format='VRT')
-            input_raster = temp_file
-        ret_dict = {}
-        ret_dict['input_raster'] = input_raster
-        ret_dict['image_obj'] = image_obj
-        return ret_dict
-
-
     def _get_doppler(self, slc_obj):
-        # product, frequency_str
+
         if self.native_doppler:
             print('*** native dop')
             doppler = slc_obj.getDopplerCentroid()
         else:
-            # Make a zero-Doppler LUT
+
             print('*** zero dop')
             doppler = isce3.core.LUT2d()
         return doppler
-
 
 def main(argv=None):
     with plant.PlantLogger():

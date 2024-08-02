@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 
-import os
 import plant
+import plant_isce3
 from osgeo import gdal
 import isce3
 import numpy as np
 
-
 def get_parser():
-    '''
-    Command line parser.
-    '''
+
     descr = ('')
     epilog = ''
     parser = plant.argparse(epilog=epilog,
@@ -35,19 +32,18 @@ def get_parser():
 
     return parser
 
-
-class PlantIsce3InterpolateDem(plant.PlantScript):
+class PlantIsce3InterpolateDem(plant_isce3.PlantIsce3Script):
 
     def __init__(self, parser, argv=None):
-        '''
-        class initialization
-        '''
+
         super().__init__(parser, argv)
 
     def run(self):
-        '''
-        run main method
-        '''
+
+        ret = self.overwrite_file_check(self.output_file)
+        if not ret:
+            self.print('Operation cancelled.', 1)
+            return
 
         dem_raster = isce3.io.Raster(self.dem_file)
         if self.epsg is None:
@@ -58,8 +54,8 @@ class PlantIsce3InterpolateDem(plant.PlantScript):
 
         geogrid_obj = isce3.product.GeoGridParameters(x0_orig,
                                                       y0_orig,
-                                                      self.step_lon,
-                                                      -abs(self.step_lat),
+                                                      self.step_x,
+                                                      -abs(self.step_y),
                                                       int(self.lon_size),
                                                       int(self.lat_size),
                                                       self.epsg)
@@ -85,7 +81,6 @@ class PlantIsce3InterpolateDem(plant.PlantScript):
         for f in plant.plant_config.output_files:
             self.print(f'## file saved: {f}')
 
-
 def _get_raster(output_file, dtype, shape):
     raster_obj = isce3.io.Raster(
         output_file,
@@ -96,7 +91,6 @@ def _get_raster(output_file, dtype, shape):
         "GTiff")
     plant.append_output_file(output_file)
     return raster_obj
-
 
 def _get_dem_interp_method(dem_interp_method):
     if (dem_interp_method is None or
@@ -111,7 +105,6 @@ def _get_dem_interp_method(dem_interp_method):
     if (dem_interp_method.upper() == 'NEAREST'):
         return isce3.core.DataInterpMethod.NEAREST
     raise NotImplementedError
-
 
 def main(argv=None):
     with plant.PlantLogger():
