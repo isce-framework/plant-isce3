@@ -3,7 +3,8 @@
 import os
 import sys
 import plant
-from osgeo import gdal, osr
+import plant_isce3
+from osgeo import osr
 import numpy as np
 import isce3
 from nisar.products.readers import SLC, open_product
@@ -11,20 +12,17 @@ import nisar.workflows.helpers as helpers
 import yamale
 from ruamel.yaml import YAML
 
-
 def get_parser():
-    '''
-    Command line parser.
-    '''
+
     descr = ('')
     epilog = ''
     parser = plant.argparse(epilog=epilog,
                             description=descr,
-                            input_file=1,  # 2 if required
+                            input_file=1,
                             dem_file=2,
                             default_options=1,
                             geo=1,
-                            # multilook=1,
+
                             output_file=1)
 
     parser.add_argument('--runconfig',
@@ -37,6 +35,14 @@ def get_parser():
                         default=False,
                         action='store_true',
                         help='Use default runconfig.')
+
+    parser.add_argument('--standard',
+                        '--nisar', '--standard-product',
+                        '--nisar-standard',
+                        dest='flag_standard_product',
+                        default=False,
+                        action='store_true',
+                        help='Generate NISAR standard product.')
 
     parser.add_argument('--tec',
                         '--tec-file',
@@ -80,65 +86,30 @@ def get_parser():
 
     return parser
 
-
-class PlantIsce3Runconfig(plant.PlantScript):
+class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
 
     def __init__(self, parser, argv=None):
-        '''
-        class initialization
-        '''
+
         super().__init__(parser, argv)
 
-    def _get_raster(self, filename, nbands=1, gdal_dtype=gdal.GDT_Float32,
-                    width=None, length=None):
-        if not filename:
-            return
-        print(f'creating file: {filename}')
-        if width is None:
-            width = self.lon_size  # *self.geogrid_upsampling
-        if length is None:
-            length = self.lat_size  # *self.geogrid_upsampling
-        output_dir = os.path.dirname(filename)
-        if output_dir and not os.path.isdir(output_dir):
-            os.makedirs(output_dir)
-        # output_format = plant.get_output_format(filename)
-        # print('output format:', output_format)
-        output_format = "ENVI"
-
-        output_obj = isce3.io.Raster(
-            filename,
-            int(width),
-            int(length),
-            int(nbands),
-            int(gdal_dtype),
-            output_format)
-        if not plant.isfile(filename):
-            self.print(f'ERROR creating {filename}')
-            return
-
-        return output_obj
-
     def run(self):
-        '''
-        run main method
-        '''
 
-        if self.input_key and self.input_key == 'B':
-            frequency_str = 'B'
-        else:
-            frequency_str = 'A'
+        ret = self.overwrite_file_check(self.output_file)
+        if not ret:
+            self.print('Operation cancelled.', 1)
+            return
 
         ellipsoid = isce3.core.Ellipsoid()
 
         slc_obj = SLC(hdf5file=self.input_file)
+        frequency_str = list(slc_obj.polarizations.keys())[0]
+
         orbit = slc_obj.getOrbit()
 
-        # Get radar grid
         radar_grid = self._get_radar_grid(slc_obj, frequency_str)
 
         geo = isce3.geocode.GeocodeFloat32()
 
-        # init geocode members
         geo.orbit = orbit
         geo.ellipsoid = ellipsoid
 
@@ -146,73 +117,32 @@ class PlantIsce3Runconfig(plant.PlantScript):
 
         dem_raster = isce3.io.Raster(self.dem_file)
 
-        lat_size = self.lat_size if plant.isvalid(self.lat_size) else -9999
-        lon_size = self.lon_size if plant.isvalid(self.lon_size) else -9999
-        y0_orig = self.lat_arr[1]
-        x0_orig = self.lon_arr[0]
+        self.update_geogrid(radar_grid, dem_raster, geo=geo)
 
-        # default pixel size
-        # if self.step_lon is None and self.epsg != 4326:
-        #     self.step_lon = 20
+        x0 = self.plant_geogrid_obj.x0
+        xf = self.plant_geogrid_obj.xf
+        y0 = self.plant_geogrid_obj.y0
+        yf = self.plant_geogrid_obj.yf
 
-        if self.epsg == 4326 and not plant.isvalid(self.step_lon):
-            self.step_lon = plant.m_to_deg_lon(30.)
-        elif self.step_lon is None:
-            self.step_lon = np.nan
-
-        if self.epsg == 4326 and not plant.isvalid(self.step_lat):
-            self.step_lat = plant.m_to_deg_lat(30.)
-        elif self.step_lat is None:
-            self.step_lat = np.nan
-
-        # if self.step_lat is None and self.epsg != 4326:
-        #     self.step_lat = -20
-        # default snap values
-        # if (self.snap_x is None and self.epsg != 4326 and
-        #         self.workflow_name.upper() == 'GCOV'):
-        #     self.snap_x = 100
         if self.snap_x is None and self.epsg != 4326:
             self.snap_x = 80
-        # if (self.snap_y is None and self.epsg != 4326 and
-        #         self.workflow_name.upper() == 'GCOV'):
-        #     self.snap_y = 100
         if self.snap_y is None and self.epsg != 4326:
             self.snap_y = 80
 
-        geo.geogrid(x0_orig,
-                    y0_orig,
-                    self.step_lon,
-                    self.step_lat,
-                    int(lon_size),
-                    int(lat_size),
-                    self.epsg)
-
-        geo.update_geogrid(radar_grid, dem_raster)
-
-        x0 = geo.geogrid_start_x
-        y0 = geo.geogrid_start_y
-        dx = geo.geogrid_spacing_x
-        dy = geo.geogrid_spacing_y
-        geogrid_width = abs(geo.geogrid_width)
-        geogrid_length = abs(geo.geogrid_length)
-        xf = x0 + dx * geogrid_width
-        yf = y0 + dy * geogrid_length
-
-        # get pixel spacing
         freq_a_dx = None
         freq_a_dy = None
         freq_b_dx = None
         freq_b_dy = None
 
-        if plant.isvalid(self.step_lon) and 'A' in slc_obj.frequencies:
-            freq_a_dx = self.step_lon
-        if plant.isvalid(self.step_lon) and 'B' in slc_obj.frequencies:
-            freq_b_dx = self.step_lon
+        if plant.isvalid(self.step_x) and 'A' in slc_obj.frequencies:
+            freq_a_dx = self.step_x
+        if plant.isvalid(self.step_x) and 'B' in slc_obj.frequencies:
+            freq_b_dx = self.step_x
 
-        if plant.isvalid(self.step_lat) and 'A' in slc_obj.frequencies:
-            freq_a_dy = self.step_lat
-        if plant.isvalid(self.step_lat) and 'B' in slc_obj.frequencies:
-            freq_b_dy = self.step_lat
+        if plant.isvalid(self.step_y) and 'A' in slc_obj.frequencies:
+            freq_a_dy = self.step_y
+        if plant.isvalid(self.step_y) and 'B' in slc_obj.frequencies:
+            freq_b_dy = self.step_y
 
         freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy = \
             self.get_pixel_spacing(freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy,
@@ -261,7 +191,6 @@ class PlantIsce3Runconfig(plant.PlantScript):
         else:
             print('input runconfing path:', self.runconfig)
 
-        # load default config
         parser = YAML(typ='safe')
         with open(self.runconfig, 'r') as f:
             cfg = parser.load(f)
@@ -396,10 +325,6 @@ class PlantIsce3Runconfig(plant.PlantScript):
             freq_b_bandwidth_mhz = int(np.round(
                 slc_obj.getSwathMetadata('B').processed_range_bandwidth / 1e6))
 
-            # if self.workflow_name.upper() == 'GCOV':
-            #     freq_b_dx = 100
-            #     freq_b_dy = 100
-            # else:
             if not plant.isvalid(freq_b_dx):
                 freq_b_dx = default_spacing_5_mhz
             if not plant.isvalid(freq_b_dy):
@@ -427,8 +352,7 @@ class PlantIsce3Runconfig(plant.PlantScript):
         print(f'            pge_name: {workflow_name_upper}_L_PGE', **kwargs)
         print('        input_file_group:', **kwargs)
         print('            input_file_path:', self.input_file, **kwargs)
-        # print(f'            qa_input_file: output_{workflow_name}/'
-        #       f'{workflow_name}.h5', **kwargs)
+
         print('        dynamic_ancillary_file_group:', **kwargs)
         print('            dem_file:', self.dem_file, **kwargs)
         if self.tec_file:
@@ -440,12 +364,23 @@ class PlantIsce3Runconfig(plant.PlantScript):
         print(f'            product_path: output_{workflow_name}', **kwargs)
         print(f'            scratch_path: scratch_{workflow_name}', **kwargs)
         print(f'            sas_output_file: {self.sas_output_file}', **kwargs)
-        # print('            qa_output_dir: qa_{workflow_name}', **kwargs)
+
         print('        debug_level_group:', **kwargs)
         print('            debug_switch: false', **kwargs)
         print('        primary_executable:', **kwargs)
         print(f'            product_type: {workflow_name_upper}', **kwargs)
+
+        if workflow_name_upper == 'GCOV' and self.flag_standard_product:
+            print('        output:', **kwargs)
+            print('            output_gcov_terms:', **kwargs)
+            print('                mantissa_nbits: 16', **kwargs)
+
         print('        processing:', **kwargs)
+
+        if workflow_name_upper == 'GCOV' and self.flag_standard_product:
+            print('            rtc:', **kwargs)
+            print('                rtc_min_value_db: -30', **kwargs)
+
         print('            geocode:', **kwargs)
 
         if workflow_name_upper == 'GCOV':
@@ -515,30 +450,6 @@ class PlantIsce3Runconfig(plant.PlantScript):
 
         return radar_grid
 
-    def _update_geogrid(self, proj_win_from_dem=None):
-
-        if self.lon_arr is None:
-            self.lon_arr = [proj_win_from_dem[0], proj_win_from_dem[2]]
-        if self.lat_arr is None:
-            self.lat_arr = [proj_win_from_dem[3], proj_win_from_dem[1]]
-
-        if self.step_lat is None:
-            self.step_lat = np.nan
-        if self.step_lon is None:
-            self.step_lon = np.nan
-
-        if plant.isnan(self.step_lat) and self.step_lat > 0:
-            self.lat_arr = [self.lat_arr[1], self.lat_arr[0]]
-            self.step_lat = -self.step_lat
-
-        if plant.isnan(self.lat_size) and plant.isvalid(self.step_lat):
-            self.lat_size = (self.lat_arr[1] -
-                             self.lat_arr[0])/self.step_lat
-
-        if plant.isnan(self.lon_size) and plant.isvalid(self.step_lon):
-            self.lon_size = (self.lon_arr[1] -
-                             self.lon_arr[0])/self.step_lon
-
     def _get_coordinates_from_h5_file(self, input_file):
         import shapely.wkt
         nisar_product_obj = open_product(input_file)
@@ -556,17 +467,12 @@ class PlantIsce3Runconfig(plant.PlantScript):
             self.epsg = int(vals[np.argmax(counts)])
             print('Closest UTM zone: EPSG', self.epsg)
 
-
 def snap_coord(val, snap, offset, round_func):
     snapped_value = round_func(float(val - offset) / snap) * snap + offset
     return snapped_value
 
-
 def point2epsg(lon, lat):
-    """
-     Return EPSG code base on a point
-     latitude/longitude coordinates
-    """
+
     if lon >= 180.0:
         lon = lon - 360.0
     if lat >= 60.0:
@@ -580,7 +486,6 @@ def point2epsg(lon, lat):
     raise ValueError(
         'Could not determine projection for {0},{1}'.format(lat, lon))
 
-
 def lat_lon_to_projected(north, east, epsg):
     wgs84_coordinate_system = osr.SpatialReference()
     wgs84_coordinate_system.SetWellKnownGeogCS("WGS84")
@@ -591,7 +496,7 @@ def lat_lon_to_projected(north, east, epsg):
         pass
 
     projected_coordinate_system = osr.SpatialReference()
-    projected_coordinate_system.ImportFromEPSG(epsg) 
+    projected_coordinate_system.ImportFromEPSG(epsg)
     try:
         projected_coordinate_system.SetAxisMappingStrategy(
             osr.OAMS_TRADITIONAL_GIS_ORDER)
@@ -603,14 +508,12 @@ def lat_lon_to_projected(north, east, epsg):
     x, y, _ = transformation.TransformPoint(float(east), float(north), 0)
     return (y, x)
 
-
 def main(argv=None):
     with plant.PlantLogger():
         parser = get_parser()
         self_obj = PlantIsce3Runconfig(parser, argv)
         ret = self_obj.run()
         return ret
-
 
 if __name__ == '__main__':
     main()

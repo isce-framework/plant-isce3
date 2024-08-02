@@ -43,5 +43,6 @@ python -m pip install .
 
 ```bash
 export PLANT_ISCE3_HOME=$PWD/src
+export PYTHON_PATH=${PYTHON_PATH}:${PLANT_ISCE3_HOME}
 export PATH=${PATH}:${PLANT_ISCE3_HOME}/src/plant_isce3
 ```
