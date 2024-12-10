@@ -10,6 +10,7 @@ import isce3
 
 import plant
 
+
 class PlantIsce3Script(plant.PlantScript):
 
     def update_geogrid(self, radar_grid, dem_raster, geo=None,
@@ -87,6 +88,14 @@ class PlantIsce3Script(plant.PlantScript):
         print('*** step_y (updated):',
               self.plant_geogrid_obj.step_y)
 
+        geo.geogrid(self.plant_geogrid_obj.x0,
+                    self.plant_geogrid_obj.y0,
+                    self.plant_geogrid_obj.step_x,
+                    self.plant_geogrid_obj.step_y,
+                    self.plant_geogrid_obj.width,
+                    self.plant_geogrid_obj.length,
+                    self.epsg)
+
     def _get_input_raster_from_nisar_slc(self, input_raster,
                                          frequency_str=None):
 
@@ -152,6 +161,7 @@ class PlantIsce3Script(plant.PlantScript):
 
         return radar_grid_ml
 
+
 def _get_output_dict_from_parser(parser, args, module_name):
     orig_index = []
     if isinstance(args, dict):
@@ -211,7 +221,7 @@ def _get_output_dict_from_parser(parser, args, module_name):
         if kwargs is not None:
             value_str = kwargs[output_key]
         else:
-            value_str = args[output_key_index+1]
+            value_str = args[output_key_index + 1]
 
         output_str = f' {ret[0]} {value_str}'
         output_args.append(ret[0])
@@ -222,7 +232,7 @@ def _get_output_dict_from_parser(parser, args, module_name):
                    for key in output_dir_keys]) and
           module_name != 'plant_display'):
 
-        mem_output_str = 'MEM:'+plant.get_temporary_file()
+        mem_output_str = 'MEM:' + plant.get_temporary_file()
         output_str = f' {ret[0]} {mem_output_str}'
         output_args.append(ret[0])
         output_args.append(mem_output_str)
@@ -239,6 +249,7 @@ def _get_output_dict_from_parser(parser, args, module_name):
 
     return output_dict
 
+
 def execute(command,
             verbose=True,
 
@@ -251,7 +262,7 @@ def execute(command,
         command_vector = command
 
     if len(command_vector) == 0 and verbose:
-        print('WARNING command not identified: '+command)
+        print('WARNING command not identified: ' + command)
         return ['']
 
     start_time = None
@@ -261,7 +272,7 @@ def execute(command,
     module_name = module_name.replace('.py', '')
     flag_error = False
 
-    module_obj = importlib.import_module('plant_isce3.'+module_name)
+    module_obj = importlib.import_module('plant_isce3.' + module_name)
 
     method_to_execute = getattr(module_obj, 'main')
 
@@ -301,7 +312,7 @@ def execute(command,
             argv.extend(['-u', '--ul', '10'])
 
         original_sys_argv = sys.argv
-        sys.argv = [module_name+'.py'] + argv
+        sys.argv = [module_name + '.py'] + argv
         flag_error = False
         ret = None
         if return_time:
@@ -336,6 +347,7 @@ def execute(command,
         if verbose:
             print(f'PLAnT (API-completed) - {module_name}.py {arguments}'
                   f'{ret_str}')
+
 
 class ModuleWrapper(object):
 
@@ -394,9 +406,9 @@ class ModuleWrapper(object):
                     if value_str:
                         value_str += ' '
                     if isinstance(v, str) and "'" not in v:
-                        value_str += "'"+str(v)+"'"
+                        value_str += "'" + str(v) + "'"
                     elif isinstance(v, str):
-                        value_str += '"'+str(v)+'"'
+                        value_str += '"' + str(v) + '"'
                     else:
                         value_str += str(v)
             elif (isinstance(value, plant.PlantImage) or
@@ -416,9 +428,9 @@ class ModuleWrapper(object):
                 key_with_dashes = key.replace('_', '-')
                 kwargs_dest['dest'] = key
                 if len(key) == 1:
-                    kwargs_arg = {'arg': '-'+key_with_dashes}
+                    kwargs_arg = {'arg': '-' + key_with_dashes}
                 else:
-                    kwargs_arg = {'arg': '--'+key_with_dashes}
+                    kwargs_arg = {'arg': '--' + key_with_dashes}
             flag_valid_argument = False
             for kwargs_argparser in [kwargs_dest, kwargs_arg]:
                 if flag_valid_argument:
@@ -526,4 +538,3 @@ class ModuleWrapper(object):
 
             args_str += f' MEM:{arg_id}'
         return args_str
-

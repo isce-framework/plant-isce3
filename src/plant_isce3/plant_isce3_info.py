@@ -8,6 +8,7 @@ from osgeo import osr
 
 from nisar.products.readers import open_product
 
+
 def get_parser():
 
     descr = ('')
@@ -22,6 +23,7 @@ def get_parser():
                         help='EPSG code for output grids.')
 
     return parser
+
 
 class PlantIsce3Info(plant_isce3.PlantIsce3Script):
 
@@ -65,7 +67,7 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                 print('max lat:', y0)
                 print('max lon:', xf)
                 bbox = plant.get_bbox(x0=x0, xf=xf, y0=y0, yf=yf)
-                coord_str = ('PLAnT bbox parameter: -b %.16f %.16f %.16f %.16f'
+                coord_str = ('PLAnT bbox argument: -b %.16f %.16f %.16f %.16f'
                              % (bbox[0], bbox[1], bbox[2], bbox[3]))
                 print(coord_str)
 
@@ -98,7 +100,7 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
 
                 projected_bbox = plant.get_bbox(x0=x_min, xf=x_max, y0=y_max,
                                                 yf=y_min)
-                coord_str = ('bbox parameter: -b %.0f %.0f %.0f %.0f'
+                coord_str = ('PLAnT bbox argument: -b %.0f %.0f %.0f %.0f'
                              % (projected_bbox[0], projected_bbox[1],
                                 projected_bbox[2], projected_bbox[3]))
 
@@ -109,6 +111,7 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                     print('max Y:', y_max)
                     print('max X:', x_max)
                     print(coord_str)
+
 
 def point2epsg(lon, lat):
 
@@ -124,6 +127,7 @@ def point2epsg(lon, lat):
         return 32701 + int(np.round((lon + 177) / 6.0))
     raise ValueError(
         'Could not determine projection for {0},{1}'.format(lat, lon))
+
 
 def lat_lon_to_projected(north, east, epsg):
     osr.UseExceptions()
@@ -149,12 +153,14 @@ def lat_lon_to_projected(north, east, epsg):
     x, y, _ = transformation.TransformPoint(float(east), float(north), 0)
     return (y, x)
 
+
 def main(argv=None):
     with plant.PlantLogger():
         parser = get_parser()
         self_obj = PlantIsce3Info(parser, argv)
         ret = self_obj.run()
         return ret
+
 
 if __name__ == '__main__':
     main()

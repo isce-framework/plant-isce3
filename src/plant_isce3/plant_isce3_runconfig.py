@@ -12,6 +12,7 @@ import nisar.workflows.helpers as helpers
 import yamale
 from ruamel.yaml import YAML
 
+
 def get_parser():
 
     descr = ('')
@@ -85,6 +86,7 @@ def get_parser():
                         help='X-coordinates snap.')
 
     return parser
+
 
 class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
 
@@ -467,9 +469,11 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
             self.epsg = int(vals[np.argmax(counts)])
             print('Closest UTM zone: EPSG', self.epsg)
 
+
 def snap_coord(val, snap, offset, round_func):
     snapped_value = round_func(float(val - offset) / snap) * snap + offset
     return snapped_value
+
 
 def point2epsg(lon, lat):
 
@@ -485,6 +489,7 @@ def point2epsg(lon, lat):
         return 32701 + int(np.round((lon + 177) / 6.0))
     raise ValueError(
         'Could not determine projection for {0},{1}'.format(lat, lon))
+
 
 def lat_lon_to_projected(north, east, epsg):
     wgs84_coordinate_system = osr.SpatialReference()
@@ -508,12 +513,14 @@ def lat_lon_to_projected(north, east, epsg):
     x, y, _ = transformation.TransformPoint(float(east), float(north), 0)
     return (y, x)
 
+
 def main(argv=None):
     with plant.PlantLogger():
         parser = get_parser()
         self_obj = PlantIsce3Runconfig(parser, argv)
         ret = self_obj.run()
         return ret
+
 
 if __name__ == '__main__':
     main()

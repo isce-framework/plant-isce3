@@ -10,6 +10,7 @@ import isce3
 from osgeo import gdal
 from nisar.products.readers import open_product
 
+
 def get_parser():
 
     descr = ('')
@@ -24,7 +25,7 @@ def get_parser():
     parser.add_argument('--frequency',
                         dest='frequency',
                         type=str,
-                        help='Frequency band, either "A" or "B"".')
+                        help='Frequency band, either "A" or "B".')
 
     parser.add_argument('--data',
                         '--images',
@@ -39,6 +40,13 @@ def get_parser():
                         dest='mask_file',
                         type=str,
                         help="Save the product's mask layer.")
+
+    parser.add_argument(
+        '--runconfig',
+        '--runconfig-file',
+        dest='runconfig_file',
+        type=str,
+        help="Save the runconfig used to generate the product.")
 
     parser.add_argument('--layover-shadow-mask',
                         '--layover-shadow-mask-layer',
@@ -55,6 +63,7 @@ def get_parser():
                         help="Save product's orbit ephemeris as a KML file.")
 
     return parser
+
 
 class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
@@ -78,6 +87,9 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
         if self.layover_shadow_mask_file:
             self.save_layover_shadow_mask(nisar_product_obj)
+
+        if self.runconfig_file:
+            self.save_runconfig_file(nisar_product_obj)
 
         if self.data_file:
             self.save_data()
@@ -162,6 +174,34 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         self.save_image(image_obj, output_file=self.layover_shadow_mask_file,
                         out_null=255, ctable=layover_shadow_mask_ctable)
 
+    def save_runconfig_file(self, nisar_product_obj):
+
+        ret = self.overwrite_file_check(self.runconfig_file)
+        if not ret:
+            self.print('Operation cancelled.', 1)
+            return
+
+        h5_obj = h5py.File(self.input_file, 'r')
+
+        runconfig_path = (f'/science/LSAR/{nisar_product_obj.productType}/'
+                          'metadata/processingInformation/'
+                          'parameters/runConfigurationContents')
+
+        runconfig_str = str(h5_obj[runconfig_path][()].decode('utf-8'))
+        h5_obj.close()
+        runconfig_str = runconfig_str.replace("\\n", "\n") + '\n'
+
+        output_dir = os.path.dirname(self.runconfig_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        with open(self.runconfig_file, "w") as f:
+
+            f.write(runconfig_str)
+            f.close()
+
+        print(f'## file saved: {self.runconfig_file} (YAML)')
+
     def save_orbit_kml(self, nisar_product_obj):
 
         ret = self.overwrite_file_check(self.orbit_kml_file)
@@ -199,12 +239,13 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             print('reference epoch:', reference_epoch)
 
         for pos, time in zip(state_vectors_pos, state_vectors_time):
-            time_str = str(reference_epoch+isce3.core.TimeDelta(time))
+            time_str = str(reference_epoch + isce3.core.TimeDelta(time))
             llh_list.append(ellipsoid.xyz_to_lon_lat(pos))
             time_list.append(time_str)
 
         output_dir = os.path.dirname(self.orbit_kml_file)
-        os.makedirs(output_dir, exist_ok=True)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
 
         with open(self.orbit_kml_file, 'w') as fp:
 
@@ -285,7 +326,10 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         for i, (llh, time_str) in enumerate(zip(llh_list, time_list)):
 
             fp.write('<Placemark>\n')
-            fp.write(f'  <name>t{i}</name>\n')
+            if flag_altitude:
+                fp.write(f'  <name>t{i}</name>\n')
+            else:
+                fp.write(f'  <name>g{i}</name>\n')
 
             description = f'UTC time: {time_str} \n'
             for axis, coord_str in enumerate(['X', 'Y', 'Z']):
@@ -341,7 +385,8 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         fp.write('</gx:SimpleArrayData>\n')
 
         for e, coord_str in enumerate(['X', 'Y', 'Z']):
-            fp.write(f'<gx:SimpleArrayData name="{coord_str}" kml:name="float">\n')
+            fp.write(
+                f'<gx:SimpleArrayData name="{coord_str}" kml:name="float">\n')
             for i, time_str in enumerate(time_list):
                 fp.write(f'<gx:value>{state_vectors_pos[i][e]}</gx:value>\n')
             fp.write('</gx:SimpleArrayData>\n')
@@ -352,11 +397,13 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         fp.write('</Placemark> \n')
         fp.write('</Folder> \n')
 
+
 def get_datetime_from_isoformat(ref_epoch):
     ref_epoch = datetime.datetime.strptime(
         ref_epoch.isoformat().split('.')[0],
         "%Y-%m-%dT%H:%M:%S")
     return ref_epoch
+
 
 def main(argv=None):
     with plant.PlantLogger():
@@ -364,6 +411,7 @@ def main(argv=None):
         self_obj = PlantIsce3Util(parser, argv)
         ret = self_obj.run()
         return ret
+
 
 if __name__ == '__main__':
     main()

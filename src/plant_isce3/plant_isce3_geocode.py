@@ -10,6 +10,7 @@ from nisar.products.readers import SLC, open_product
 
 PSP_NULL = 0
 
+
 def get_parser():
 
     descr = ('')
@@ -90,11 +91,12 @@ def get_parser():
                         dest='flag_symmetrize',
                         help='Apply polarimetric symmetrization')
 
-    parser.add_argument('--symmetrize-bands',
-                        dest='symmetrize_bands',
-                        nargs=2,
-                        type=int,
-                        help='Bands (starting from 0) to symmetrize before geocoding.')
+    parser.add_argument(
+        '--symmetrize-bands',
+        dest='symmetrize_bands',
+        nargs=2,
+        type=int,
+        help='Bands (starting from 0) to symmetrize before geocoding.')
 
     parser.add_argument('--list-of-polarizations',
                         dest='list_of_polarizations',
@@ -323,6 +325,7 @@ def get_parser():
 
     return parser
 
+
 class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
 
     def __init__(self, parser, argv=None):
@@ -510,7 +513,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
                 self.out_off_diag_terms = plant.get_temporary_file(append=True,
                                                                    ext='bin')
 
-            nbands_off_diag_terms = int((nbands**2-nbands)/2)
+            nbands_off_diag_terms = int((nbands**2 - nbands) / 2)
             print('nbands_off_diag_terms: ', nbands_off_diag_terms)
             if nbands_off_diag_terms > 0:
                 out_off_diag_terms_obj = self._get_raster(
@@ -718,7 +721,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         if self.out_off_diag_terms:
             try:
                 out_off_diag_terms_obj.close_dataset()
-            except:
+            except BaseException:
                 pass
             del out_off_diag_terms_obj
             plant.append_output_file(self.out_off_diag_terms)
@@ -794,7 +797,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
                 try:
                     list_of_polarizations = plant.read_image(
                         f'HDF5:{self.input_file}:{pol_key}').image[0]
-                except:
+                except BaseException:
                     flag_error = True
                 if flag_error:
                     pol_key = (f'//science/LSAR/SLC/swaths/'
@@ -805,10 +808,11 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
             try:
                 list_of_polarizations = [p.upper()
                                          for p in list_of_polarizations]
-            except:
-                print('WARNING could not guess the list of input polarizations. Considering it'
-                      f' as {list_of_polarizations}. Please use the parameter'
-                      ' --list-of-polarizations to inform the correct order')
+            except BaseException:
+                print(
+                    'WARNING could not guess the list of input polarizations. Considering it'
+                    f' as {list_of_polarizations}. Please use the parameter'
+                    ' --list-of-polarizations to inform the correct order')
                 if self.input_raster:
                     list_of_polarizations = \
                         ['HH', 'HV', 'VH', 'VV'][0:input_raster_obj.nbands]
@@ -1060,7 +1064,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
                 try:
                     temp_symmetrized_file = self._symmetrize_cross_pols(
                         hv_ref, vh_ref)
-                except:
+                except BaseException:
                     flag_error = True
 
                 if flag_error:
@@ -1102,12 +1106,14 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
             doppler = isce3.core.LUT2d()
         return doppler
 
+
 def main(argv=None):
     with plant.PlantLogger():
         parser = get_parser()
         self_obj = PlantIsce3Geocode(parser, argv)
         ret = self_obj.run()
         return ret
+
 
 if __name__ == '__main__':
     main()

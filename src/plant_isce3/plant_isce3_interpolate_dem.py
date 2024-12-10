@@ -6,6 +6,7 @@ from osgeo import gdal
 import isce3
 import numpy as np
 
+
 def get_parser():
 
     descr = ('')
@@ -22,7 +23,7 @@ def get_parser():
                         dest='epsg',
                         type=int,
                         default=None,
-                        help='EPSG code for output grids. Default: same as DEM.')
+                        help='EPSG code for output grid')
 
     parser.add_argument('--dem-interp-method',
                         dest='dem_interp_method',
@@ -31,6 +32,7 @@ def get_parser():
                         ' sinc, bilinear, bicubic, nearest, biquintic')
 
     return parser
+
 
 class PlantIsce3InterpolateDem(plant_isce3.PlantIsce3Script):
 
@@ -49,16 +51,15 @@ class PlantIsce3InterpolateDem(plant_isce3.PlantIsce3Script):
         if self.epsg is None:
             self.epsg = dem_raster.get_epsg()
 
-        y0_orig = self.lat_arr[1]
-        x0_orig = self.lon_arr[0]
+        geogrid_obj = isce3.product.GeoGridParameters(
+            start_x=self.plant_geogrid_obj.x0,
+            start_y=self.plant_geogrid_obj.y0,
+            spacing_x=self.plant_geogrid_obj.step_x,
+            spacing_y=self.plant_geogrid_obj.step_y,
+            width=int(self.plant_geogrid_obj.width),
+            length=int(self.plant_geogrid_obj.length),
+            epsg=self.epsg)
 
-        geogrid_obj = isce3.product.GeoGridParameters(x0_orig,
-                                                      y0_orig,
-                                                      self.step_x,
-                                                      -abs(self.step_y),
-                                                      int(self.lon_size),
-                                                      int(self.lat_size),
-                                                      self.epsg)
         geogrid_obj.print()
 
         nbands = 1
@@ -81,6 +82,7 @@ class PlantIsce3InterpolateDem(plant_isce3.PlantIsce3Script):
         for f in plant.plant_config.output_files:
             self.print(f'## file saved: {f}')
 
+
 def _get_raster(output_file, dtype, shape):
     raster_obj = isce3.io.Raster(
         output_file,
@@ -91,6 +93,7 @@ def _get_raster(output_file, dtype, shape):
         "GTiff")
     plant.append_output_file(output_file)
     return raster_obj
+
 
 def _get_dem_interp_method(dem_interp_method):
     if (dem_interp_method is None or
@@ -106,12 +109,14 @@ def _get_dem_interp_method(dem_interp_method):
         return isce3.core.DataInterpMethod.NEAREST
     raise NotImplementedError
 
+
 def main(argv=None):
     with plant.PlantLogger():
         parser = get_parser()
         self_obj = PlantIsce3InterpolateDem(parser, argv)
         ret = self_obj.run()
         return ret
+
 
 if __name__ == '__main__':
     main()
