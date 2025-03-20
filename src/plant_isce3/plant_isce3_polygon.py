@@ -9,6 +9,7 @@ import random
 import isce3
 from nisar.products.readers import SLC
 
+
 def get_parser():
 
     descr = ('')
@@ -117,6 +118,7 @@ def get_parser():
 
     return parser
 
+
 class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
 
     def __init__(self, parser, argv=None):
@@ -171,7 +173,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
         if dem_raster.get_epsg() == 0 or dem_raster.get_epsg() < -9000:
             print(f'WARNING invalid DEM EPSG: {dem_raster.get_epsg()}')
             print('Updating DEM EPSG to 4326...')
-            dem_raster.set_epsg(4326);
+            dem_raster.set_epsg(4326)
 
         output_dir = os.path.dirname(self.output_file)
         if output_dir and not os.path.isdir(output_dir):
@@ -212,13 +214,13 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
             flag_error = False
             try:
                 output_mode = isce3.geocode.GeocodeOutputMode.AREA_PROJECTION_GAMMA_NAUGHT
-            except:
+            except BaseException:
                 flag_error = True
             if flag_error:
                 try:
                     output_mode = isce3.geocode.GeocodeOutputMode.AREA_PROJECTION_WITH_RTC
                     flag_error = False
-                except:
+                except BaseException:
                     pass
             if flag_error:
                 output_mode = isce3.geocode.GeocodeOutputMode.AREA_PROJECTION
@@ -304,7 +306,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                 temp_off_diag_file = None
                 nbands_off_diag_terms = None
                 if self.flag_add_off_diag_terms:
-                    nbands_off_diag_terms = int((nbands**2-nbands)/2)
+                    nbands_off_diag_terms = int((nbands**2 - nbands) / 2)
                     print('nbands_off_diag_terms: ', nbands_off_diag_terms)
                     if nbands_off_diag_terms > 0:
                         temp_off_diag_file = plant.get_temporary_file(
@@ -327,10 +329,11 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                         ellipsoid,
                         doppler,
                         dem_raster)
-                except:
+                except BaseException:
                     error_message = plant.get_error_message()
-                    self.print(f'ERROR there was an error processing polygon {i+1}: ' +
-                               error_message)
+                    self.print(
+                        f'ERROR there was an error processing polygon {i+1}: ' +
+                        error_message)
                     if not self.flag_add_off_diag_terms:
                         result_list[i] = np.full((1, nbands), np.nan)
                     else:
@@ -391,7 +394,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                         output_mode=output_mode,
                         geogrid_upsampling=self.geogrid_upsampling,
                         **kwargs)
-                except:
+                except BaseException:
                     flag_error = True
                 if flag_error:
                     try:
@@ -405,10 +408,11 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                             exponent=self.exponent,
                             geogrid_upsampling=self.geogrid_upsampling,
                             **kwargs)
-                    except:
+                    except BaseException:
                         error_message = plant.get_error_message()
-                        self.print(f'There was an error processing polygon {i+1}: ' +
-                                   error_message)
+                        self.print(
+                            f'There was an error processing polygon {i+1}: ' +
+                            error_message)
                         if not self.flag_add_off_diag_terms:
                             result_list[i] = np.full((1, nbands), np.nan)
                         else:
@@ -451,9 +455,11 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                     for band_1 in range(nbands):
                         for band_2 in range(nbands):
                             if band_1 == band_2:
-                                cov_matrix[band_1, band_2] = mean_value[0, band_1]
+                                cov_matrix[band_1,
+                                           band_2] = mean_value[0, band_1]
                             elif band_1 < band_2:
-                                cov_matrix[band_1, band_2] = mean_off_value[band_index]
+                                cov_matrix[band_1,
+                                           band_2] = mean_off_value[band_index]
                                 band_index += 1
                             else:
                                 cov_matrix[band_1, band_2] = np.conj(
@@ -510,12 +516,14 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
             doppler = isce3.core.LUT2d()
         return doppler
 
+
 def main(argv=None):
     with plant.PlantLogger():
         parser = get_parser()
         self_obj = PlantIsce3Polygon(parser, argv)
         ret = self_obj.run()
         return ret
+
 
 if __name__ == '__main__':
     main()

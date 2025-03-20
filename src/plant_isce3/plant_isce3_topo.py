@@ -7,6 +7,7 @@ import plant_isce3
 import isce3
 from nisar.products.readers import SLC
 
+
 def get_parser():
 
     descr = ('')
@@ -31,6 +32,7 @@ def get_parser():
                         help='Native Doppler.')
 
     return parser
+
 
 class PlantIsce3Topo(plant_isce3.PlantIsce3Script):
 
@@ -92,12 +94,14 @@ class PlantIsce3Topo(plant_isce3.PlantIsce3Script):
             doppler = isce3.core.LUT2d()
         return doppler
 
+
 def main(argv=None):
     with plant.PlantLogger():
         parser = get_parser()
         self_obj = PlantIsce3Topo(parser, argv)
         ret = self_obj.run()
         return ret
+
 
 if __name__ == '__main__':
     main()

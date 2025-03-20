@@ -15,22 +15,27 @@ GCOV_ORBIT_KML = 'output_data/gcov_orbit.kml'
 INTERPOLATED_DEM_PATH = 'output_data/interpolated_dem.tif'
 TOPO_DIR = 'output_data/topo_dir'
 
+
 def test_plant_isce3_info():
     info(NISAR_RSLC_PATH)
+
 
 def test_plant_isce3_util():
     util(NISAR_RSLC_PATH, orbit_kml=RSLC_ORBIT_KML,
          force=True)
     assert os.path.isfile(RSLC_ORBIT_KML)
 
+
 def test_plant_isce3_topo():
     topo(NISAR_RSLC_PATH, dem=DEM_PATH,
          output_directory=TOPO_DIR)
+
 
 def test_plant_isce3_geocode():
     geocode(NISAR_RSLC_PATH, dem=DEM_PATH,
             output_file=GEOCODED_TIFF_PATH, force=True)
     assert os.path.isfile(GEOCODED_TIFF_PATH)
+
 
 def test_plant_isce3_gcov():
     runconfig(NISAR_RSLC_PATH, dem=DEM_PATH,
