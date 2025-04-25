@@ -809,6 +809,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
                 print('WARNING could not guess the list of input polarizations. Considering it'
                       f' as {list_of_polarizations}. Please use the parameter'
                       ' --list-of-polarizations to inform the correct order')
+
                 if self.input_raster:
                     list_of_polarizations = \
                         ['HH', 'HV', 'VH', 'VV'][0:input_raster_obj.nbands]

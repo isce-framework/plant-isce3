@@ -1,0 +1,8 @@
+<VRTDataset rasterXSize="36" rasterYSize="18"> 
+  <SRS dataAxisToSRSAxisMapping="2,1">GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AXIS["Latitude",NORTH],AXIS["Longitude",EAST],AUTHORITY["EPSG","4326"]]</SRS>
+  <GeoTransform> -180, 10, 0, 90, 0, -10 </GeoTransform> 
+  <VRTRasterBand dataType="Float32" band="1"> 
+    <NoDataValue>100</NoDataValue> 
+    <HideNoDataValue>100</HideNoDataValue> 
+  </VRTRasterBand> 
+</VRTDataset> 

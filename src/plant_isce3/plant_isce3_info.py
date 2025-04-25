@@ -76,6 +76,7 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                 for lat in [y0, yf]:
                     for lon in [x0, xf]:
                         zones_list.append(plant_isce3.point2epsg(lon, lat))
+
                 vals, counts = np.unique(zones_list, return_counts=True)
                 self.epsg = int(vals[np.argmax(counts)])
                 print('closest projection EPSG code supported by NISAR:',

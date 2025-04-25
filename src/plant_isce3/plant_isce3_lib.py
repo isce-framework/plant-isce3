@@ -361,7 +361,6 @@ class PlantIsce3Script(plant.PlantScript):
             doppler_centroid_lut.bounds_error = False
         return doppler_centroid_lut
 
-
 def _get_output_dict_from_parser(parser, args, module_name):
     orig_index = []
     if isinstance(args, dict):
