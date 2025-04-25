@@ -2,16 +2,16 @@
 
 import os
 import plant
+import plant_isce3
 import numpy as np
 from osgeo import gdal
 import random
 import isce3
 from nisar.products.readers import SLC
 
+
 def get_parser():
-    '''
-    Command line parser.
-    '''
+
     descr = ('')
     epilog = ''
     parser = plant.argparse(epilog=epilog,
@@ -64,7 +64,6 @@ def get_parser():
                         dest='save_weights',
                         help='Save area projection weights')
 
-    # arguments
     parser_output_mode = parser.add_mutually_exclusive_group()
     parser_output_mode.add_argument('--area',
                                     action='store_true',
@@ -77,12 +76,12 @@ def get_parser():
                                     help='Use area mode and apply radiometric'
                                     ' terrain correction')
 
-    parser.add_argument('--native-doppler',
-                        dest='native_doppler',
+    parser.add_argument('--native-doppler-grid',
+                        dest='native_doppler_grid',
                         default=False,
                         action='store_true',
-                        help='Native Doppler.')
-    
+                        help='Consider native Doppler grid (skewed geometry)')
+
     parser.add_argument('--upsampling',
                         dest='geogrid_upsampling',
                         type=float,
@@ -99,14 +98,13 @@ def get_parser():
                         type=str,
                         help='Input data radiometry. Options:'
                         'beta or sigma-ellipsoid')
-    
+
     parser.add_argument('--output-radiometry',
                         '--output-terrain-radiometry',
                         dest='output_terrain_radiometry',
                         type=str,
                         help='Output data radiometry. Options:'
                         'sigma-naught or gamma-naught')
-
 
     parser.add_argument('--in-geo-edges',
                         dest='in_geo_edges',
@@ -121,26 +119,26 @@ def get_parser():
     return parser
 
 
-class PlantIsce3Polygon(plant.PlantScript):
+class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
 
     def __init__(self, parser, argv=None):
-        '''
-        class initialization
-        '''
+
         super().__init__(parser, argv)
 
     def run(self):
-        '''
-        run main method
-        '''
+
         if not self.plant_transform_obj.geo_polygon:
             self.print('ERROR one the following argument is required:'
                        f' {self.plant_transform_obj.geo_polygon}')
             return
-        if self.input_key and self.input_key == 'B':
-            frequency_str = 'B'
-        else:
-            frequency_str = 'A'
+
+        ret = self.overwrite_file_check(self.output_file)
+        if not ret:
+            self.print('Operation cancelled.', 1)
+            return
+
+        nisar_product_obj = open_product(self.input_file)
+        frequency_str = list(nisar_product_obj.polarizations.keys())[0]
 
         ret_dict = self._get_input_raster_from_nisar_slc(
             self.input_raster)
@@ -155,11 +153,10 @@ class PlantIsce3Polygon(plant.PlantScript):
         slc_obj = SLC(hdf5file=self.input_file)
         orbit = slc_obj.getOrbit()
         ellipsoid = isce3.core.Ellipsoid()
-        doppler = self._get_doppler(slc_obj)
+        doppler = self.get_doppler_grid_lut(slc_obj)
 
-        # Get radar grid
-        radar_grid_ml = self._get_radar_grid(slc_obj,
-                                             frequency_str)
+        radar_grid_ml = self.get_radar_grid(slc_obj,
+                                            frequency_str)
 
         if input_raster_obj.datatype() == 6:
             GeocodePolygon = isce3.geocode.GeocodePolygonFloat32
@@ -176,7 +173,7 @@ class PlantIsce3Polygon(plant.PlantScript):
         if dem_raster.get_epsg() == 0 or dem_raster.get_epsg() < -9000:
             print(f'WARNING invalid DEM EPSG: {dem_raster.get_epsg()}')
             print('Updating DEM EPSG to 4326...')
-            dem_raster.set_epsg(4326);
+            dem_raster.set_epsg(4326)
 
         output_dir = os.path.dirname(self.output_file)
         if output_dir and not os.path.isdir(output_dir):
@@ -217,13 +214,13 @@ class PlantIsce3Polygon(plant.PlantScript):
             flag_error = False
             try:
                 output_mode = isce3.geocode.GeocodeOutputMode.AREA_PROJECTION_GAMMA_NAUGHT
-            except:
+            except BaseException:
                 flag_error = True
             if flag_error:
                 try:
                     output_mode = isce3.geocode.GeocodeOutputMode.AREA_PROJECTION_WITH_RTC
                     flag_error = False
-                except:
+                except BaseException:
                     pass
             if flag_error:
                 output_mode = isce3.geocode.GeocodeOutputMode.AREA_PROJECTION
@@ -289,12 +286,12 @@ class PlantIsce3Polygon(plant.PlantScript):
 
         for i, (y_vect, x_vect) in enumerate(
                 zip(y_vect_list, x_vect_list)):
-            self.print(f'Processing polygon {i+1}:')
+            self.print(f'Processing polygon {i + 1}:')
             with plant.PlantIndent():
                 self.print(f'Y-vect: {y_vect}')
                 self.print(f'X-vect: {x_vect}')
                 temp_file = plant.get_temporary_file(
-                    suffix=f'polygon_{i+1}_temp_{random.random()}',
+                    suffix=f'polygon_{i + 1}_temp_{random.random()}',
                     append=True)
                 plant.append_temporary_file(temp_file)
                 out_polygon_raster_obj = isce3.io.Raster(
@@ -309,11 +306,11 @@ class PlantIsce3Polygon(plant.PlantScript):
                 temp_off_diag_file = None
                 nbands_off_diag_terms = None
                 if self.flag_add_off_diag_terms:
-                    nbands_off_diag_terms = int((nbands**2-nbands)/2)
+                    nbands_off_diag_terms = int((nbands**2 - nbands) / 2)
                     print('nbands_off_diag_terms: ', nbands_off_diag_terms)
                     if nbands_off_diag_terms > 0:
                         temp_off_diag_file = plant.get_temporary_file(
-                            suffix=f'polygon_{i+1}_temp_{random.random()}',
+                            suffix=f'polygon_{i + 1}_temp_{random.random()}',
                             append=True)
                         plant.append_temporary_file(temp_off_diag_file)
                         out_off_diag_terms_obj = isce3.io.Raster(
@@ -332,10 +329,11 @@ class PlantIsce3Polygon(plant.PlantScript):
                         ellipsoid,
                         doppler,
                         dem_raster)
-                except:
+                except BaseException:
                     error_message = plant.get_error_message()
-                    self.print(f'ERROR there was an error processing polygon {i+1}: ' +
-                               error_message)
+                    self.print(
+                        f'ERROR there was an error processing polygon {
+                            i + 1}: ' + error_message)
                     if not self.flag_add_off_diag_terms:
                         result_list[i] = np.full((1, nbands), np.nan)
                     else:
@@ -348,7 +346,7 @@ class PlantIsce3Polygon(plant.PlantScript):
                 print(f'*** cropped radar grid dimensions: {width}x{length}')
 
                 if self.save_radargrid_data:
-                    radargrid_data_filename = f'polygon_{i+1}_data.bin'
+                    radargrid_data_filename = f'polygon_{i + 1}_data.bin'
                     output_radargrid_data_obj = isce3.io.Raster(
                         radargrid_data_filename,
                         width,
@@ -360,7 +358,7 @@ class PlantIsce3Polygon(plant.PlantScript):
                     plant.append_output_file(radargrid_data_filename)
 
                 if self.save_rtc:
-                    rtc_filename = f'polygon_{i+1}_rtc.bin'
+                    rtc_filename = f'polygon_{i + 1}_rtc.bin'
                     output_rtc_obj = isce3.io.Raster(
                         rtc_filename,
                         width,
@@ -372,7 +370,7 @@ class PlantIsce3Polygon(plant.PlantScript):
                     plant.append_output_file(rtc_filename)
 
                 if self.save_weights:
-                    weights_filename = f'polygon_{i+1}_weights.bin'
+                    weights_filename = f'polygon_{i + 1}_weights.bin'
                     output_weights_obj = isce3.io.Raster(
                         weights_filename,
                         width,
@@ -396,7 +394,7 @@ class PlantIsce3Polygon(plant.PlantScript):
                         output_mode=output_mode,
                         geogrid_upsampling=self.geogrid_upsampling,
                         **kwargs)
-                except:
+                except BaseException:
                     flag_error = True
                 if flag_error:
                     try:
@@ -410,10 +408,11 @@ class PlantIsce3Polygon(plant.PlantScript):
                             exponent=self.exponent,
                             geogrid_upsampling=self.geogrid_upsampling,
                             **kwargs)
-                    except:
+                    except BaseException:
                         error_message = plant.get_error_message()
-                        self.print(f'There was an error processing polygon {i+1}: ' +
-                                   error_message)
+                        self.print(
+                            f'There was an error processing polygon {
+                                i + 1}: ' + error_message)
                         if not self.flag_add_off_diag_terms:
                             result_list[i] = np.full((1, nbands), np.nan)
                         else:
@@ -456,9 +455,11 @@ class PlantIsce3Polygon(plant.PlantScript):
                     for band_1 in range(nbands):
                         for band_2 in range(nbands):
                             if band_1 == band_2:
-                                cov_matrix[band_1, band_2] = mean_value[0, band_1]
+                                cov_matrix[band_1,
+                                           band_2] = mean_value[0, band_1]
                             elif band_1 < band_2:
-                                cov_matrix[band_1, band_2] = mean_off_value[band_index]
+                                cov_matrix[band_1,
+                                           band_2] = mean_off_value[band_index]
                                 band_index += 1
                             else:
                                 cov_matrix[band_1, band_2] = np.conj(
@@ -477,87 +478,6 @@ class PlantIsce3Polygon(plant.PlantScript):
         plant.append_output_file(self.output_file)
         return result_list
 
-    def _get_radar_grid(self, slc_obj, frequency_str):
-        radar_grid = slc_obj.getRadarGrid(frequency_str)
-        if (self.nlooks_az > 1 or self.nlooks_rg > 1):
-            radar_grid_ml = radar_grid.multilook(self.nlooks_az,
-                                                 self.nlooks_rg)
-        else:
-            radar_grid_ml = radar_grid
-        if self.select_row is not None or self.select_col is not None:
-            self.plant_transform_obj.update_crop_window(
-                length_orig=radar_grid_ml.length,
-                width_orig=radar_grid_ml.width)
-            y0 = self.plant_transform_obj._offset_y
-            if y0 is None:
-                y0 = 0
-            x0 = self.plant_transform_obj._offset_x
-            if x0 is None:
-                x0 = 0
-            length = self.plant_transform_obj.length
-            if length is None:
-                length = radar_grid_ml.length
-            width = self.plant_transform_obj.width
-            if width is None:
-                width = radar_grid_ml.width
-            radar_grid_ml = radar_grid_ml.offsetAndResize(
-                y0, x0, length, width)
-        return radar_grid_ml
-
-    def _get_input_raster_from_nisar_slc(self, input_raster):
-        if self.input_key and self.input_key == 'B':
-            frequency_str = 'B'
-        else:
-            frequency_str = 'A'
-        if input_raster is not None:
-
-            plant_transform_obj = self.plant_transform_obj.copy()
-            plant_transform_obj.polygon = None
-            plant_transform_obj.geo_polygon = None
-
-            flag_apply_transformation = \
-                plant_transform_obj.flag_apply_transformation()
-
-            image_obj = self.read_image(input_raster)
-            if flag_apply_transformation:
-                temp_file = plant.get_temporary_file(append=True,
-                                                     ext='vrt')
-                for b in range(image_obj.nbands):
-                    band = image_obj.get_band(band=b)
-                    image_obj.set_band(band, band=b)
-                self.print(f'*** creating temporary file: {temp_file}')
-                self.save_image(image_obj, temp_file, force=True,
-                                output_format='VRT')
-                input_raster = temp_file
-        else:
-            raster_file = f'NISAR:{self.input_file}:{frequency_str}'
-            temp_file = plant.get_temporary_file(append=True,
-                                                 ext='vrt')
-            self.print(f'*** creating temporary file: {temp_file}')
-            image_obj = self.read_image(raster_file)
-            for b in range(image_obj.nbands):
-                band = image_obj.get_band(band=b)
-                image_obj.set_band(band, band=b)
-            self.save_image(image_obj, temp_file, force=True,
-                            output_format='VRT')
-            input_raster = temp_file
-        ret_dict = {}
-        ret_dict['input_raster'] = input_raster
-        ret_dict['image_obj'] = image_obj
-        return ret_dict
-
-
-    def _get_doppler(self, slc_obj):
-        # product, frequency_str
-        if self.native_doppler:
-            print('*** native dop')
-            doppler = slc_obj.getDopplerCentroid()
-        else:
-            # Make a zero-Doppler LUT
-            print('*** zero dop')
-            doppler = isce3.core.LUT2d()
-        return doppler
-
 
 def main(argv=None):
     with plant.PlantLogger():
@@ -565,6 +485,7 @@ def main(argv=None):
         self_obj = PlantIsce3Polygon(parser, argv)
         ret = self_obj.run()
         return ret
+
 
 if __name__ == '__main__':
     main()

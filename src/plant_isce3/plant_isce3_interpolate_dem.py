@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 
-import os
 import plant
+import plant_isce3
 from osgeo import gdal
 import isce3
 import numpy as np
 
 
 def get_parser():
-    '''
-    Command line parser.
-    '''
+
     descr = ('')
     epilog = ''
     parser = plant.argparse(epilog=epilog,
@@ -25,7 +23,7 @@ def get_parser():
                         dest='epsg',
                         type=int,
                         default=None,
-                        help='EPSG code for output grids. Default: same as DEM.')
+                        help='EPSG code for output grid')
 
     parser.add_argument('--dem-interp-method',
                         dest='dem_interp_method',
@@ -36,40 +34,40 @@ def get_parser():
     return parser
 
 
-class PlantIsce3InterpolateDem(plant.PlantScript):
+class PlantIsce3InterpolateDem(plant_isce3.PlantIsce3Script):
 
     def __init__(self, parser, argv=None):
-        '''
-        class initialization
-        '''
+
         super().__init__(parser, argv)
 
     def run(self):
-        '''
-        run main method
-        '''
+
+        ret = self.overwrite_file_check(self.output_file)
+        if not ret:
+            self.print('Operation cancelled.', 1)
+            return
 
         dem_raster = isce3.io.Raster(self.dem_file)
         if self.epsg is None:
             self.epsg = dem_raster.get_epsg()
 
-        y0_orig = self.lat_arr[1]
-        x0_orig = self.lon_arr[0]
+        geogrid_obj = isce3.product.GeoGridParameters(
+            start_x=self.plant_geogrid_obj.x0,
+            start_y=self.plant_geogrid_obj.y0,
+            spacing_x=self.plant_geogrid_obj.step_x,
+            spacing_y=self.plant_geogrid_obj.step_y,
+            width=int(self.plant_geogrid_obj.width),
+            length=int(self.plant_geogrid_obj.length),
+            epsg=self.epsg)
 
-        geogrid_obj = isce3.product.GeoGridParameters(x0_orig,
-                                                      y0_orig,
-                                                      self.step_lon,
-                                                      -abs(self.step_lat),
-                                                      int(self.lon_size),
-                                                      int(self.lat_size),
-                                                      self.epsg)
         geogrid_obj.print()
 
         nbands = 1
         shape = [nbands, geogrid_obj.length, geogrid_obj.width]
 
-        interpolated_dem_raster = _get_raster(
-            self.output_file, np.float32, shape)
+        interpolated_dem_raster = self._get_raster(
+            self.output_file, nbands=shape[0], length=shape[1],
+            width=shape[2])
         output_obj_list = [interpolated_dem_raster]
 
         dem_interp_method = _get_dem_interp_method(self.dem_interp_method)
@@ -84,18 +82,6 @@ class PlantIsce3InterpolateDem(plant.PlantScript):
 
         for f in plant.plant_config.output_files:
             self.print(f'## file saved: {f}')
-
-
-def _get_raster(output_file, dtype, shape):
-    raster_obj = isce3.io.Raster(
-        output_file,
-        shape[2],
-        shape[1],
-        shape[0],
-        gdal.GDT_Float32,
-        "GTiff")
-    plant.append_output_file(output_file)
-    return raster_obj
 
 
 def _get_dem_interp_method(dem_interp_method):
@@ -119,6 +105,7 @@ def main(argv=None):
         self_obj = PlantIsce3InterpolateDem(parser, argv)
         ret = self_obj.run()
         return ret
+
 
 if __name__ == '__main__':
     main()
