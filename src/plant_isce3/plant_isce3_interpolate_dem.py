@@ -65,7 +65,7 @@ class PlantIsce3InterpolateDem(plant_isce3.PlantIsce3Script):
         nbands = 1
         shape = [nbands, geogrid_obj.length, geogrid_obj.width]
 
-        interpolated_dem_raster = self._get_raster(
+        interpolated_dem_raster = self._create_output_raster(
             self.output_file, nbands=shape[0], length=shape[1],
             width=shape[2])
         output_obj_list = [interpolated_dem_raster]
