@@ -413,7 +413,6 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                         self.print(
                             f'There was an error processing polygon {
                                 i + 1}: ' + error_message)
-
                         if not self.flag_add_off_diag_terms:
                             result_list[i] = np.full((1, nbands), np.nan)
                         else:
