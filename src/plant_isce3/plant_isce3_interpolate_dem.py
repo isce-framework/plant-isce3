@@ -65,8 +65,9 @@ class PlantIsce3InterpolateDem(plant_isce3.PlantIsce3Script):
         nbands = 1
         shape = [nbands, geogrid_obj.length, geogrid_obj.width]
 
-        interpolated_dem_raster = _get_raster(
-            self.output_file, np.float32, shape)
+        interpolated_dem_raster = self._create_output_raster(
+            self.output_file, nbands=shape[0], length=shape[1],
+            width=shape[2])
         output_obj_list = [interpolated_dem_raster]
 
         dem_interp_method = _get_dem_interp_method(self.dem_interp_method)
@@ -81,18 +82,6 @@ class PlantIsce3InterpolateDem(plant_isce3.PlantIsce3Script):
 
         for f in plant.plant_config.output_files:
             self.print(f'## file saved: {f}')
-
-
-def _get_raster(output_file, dtype, shape):
-    raster_obj = isce3.io.Raster(
-        output_file,
-        shape[2],
-        shape[1],
-        shape[0],
-        gdal.GDT_Float32,
-        "GTiff")
-    plant.append_output_file(output_file)
-    return raster_obj
 
 
 def _get_dem_interp_method(dem_interp_method):

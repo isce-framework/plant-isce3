@@ -31,7 +31,8 @@ def get_parser():
                         '--images',
                         dest='data_file',
                         type=str,
-                        help="Save the product's data layers.")
+                        help=("File where the product's data layers will be"
+                              " stored."))
 
     parser.add_argument('--mask',
                         '--mask-layer',
@@ -39,14 +40,15 @@ def get_parser():
                         '--save-mask-layer',
                         dest='mask_file',
                         type=str,
-                        help="Save the product's mask layer.")
+                        help=("File where the product's mask layer will be"
+                              " stored."))
 
-    parser.add_argument(
-        '--runconfig',
-        '--runconfig-file',
-        dest='runconfig_file',
-        type=str,
-        help="Save the runconfig used to generate the product.")
+    parser.add_argument('--runconfig',
+                        '--runconfig-file',
+                        dest='runconfig_file',
+                        type=str,
+                        help=("File where the runconfig used to generate the"
+                              " product will be stored."))
 
     parser.add_argument('--layover-shadow-mask',
                         '--layover-shadow-mask-layer',
@@ -54,13 +56,15 @@ def get_parser():
                         '--save-layover-shadow-mask-layer',
                         dest='layover_shadow_mask_file',
                         type=str,
-                        help="Save the product's mask layer.")
+                        help=("File where the product's mask layer will be"
+                              " stored."))
 
     parser.add_argument('--orbit-kml',
                         '--save-orbit-kml',
                         dest='orbit_kml_file',
                         type=str,
-                        help="Save product's orbit ephemeris as a KML file.")
+                        help=("KML file where the product's orbit ephemeris"
+                              " will be stored."))
 
     return parser
 

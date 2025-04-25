@@ -63,12 +63,10 @@ def get_parser():
                         type=str,
                         help='Exterinal orbit file.')
 
-    parser.add_argument('--workflow',
-                        '--workflow-name',
-                        dest='workflow_name',
-                        type=str,
-                        default='GCOV',
-                        help='Workflow name')
+    parser.add_argument('--gslc',
+                        action='store_true',
+                        dest='flag_gslc',
+                        help='Generated geocoded SLC runconfig')
 
     parser.add_argument('--epsg',
                         dest='epsg',
@@ -101,6 +99,11 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
             self.print('Operation cancelled.', 1)
             return
 
+        if self.flag_gslc:
+            self.workflow_name = 'GSLC'
+        else:
+            self.workflow_name = 'GCOV'
+
         ellipsoid = isce3.core.Ellipsoid()
 
         slc_obj = SLC(hdf5file=self.input_file)
@@ -108,14 +111,14 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
 
         orbit = slc_obj.getOrbit()
 
-        radar_grid = self._get_radar_grid(slc_obj, frequency_str)
+        radar_grid = self.get_radar_grid(slc_obj, frequency_str)
 
         geo = isce3.geocode.GeocodeFloat32()
 
         geo.orbit = orbit
         geo.ellipsoid = ellipsoid
 
-        self._get_coordinates_from_h5_file(self.input_file)
+        self._get_epsg_from_h5_file(self.input_file)
 
         dem_raster = isce3.io.Raster(self.dem_file)
 
@@ -166,13 +169,6 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
         self.print_runconfig(x0, y0, xf, yf, freq_a_dx, freq_a_dy, freq_b_dx,
                              freq_b_dy)
         print('==============================================================')
-
-        if (os.path.isfile(self.output_file) or
-                os.path.islink(self.output_file)):
-            flag_update_file = self.overwrite_file_check(
-                self.output_file)
-            if not flag_update_file:
-                return
 
         if not self.use_default_runconfig and not self.runconfig:
 
@@ -425,40 +421,13 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
             print('                x: 512', **kwargs)
             print('            flatten: True', **kwargs)
 
-    def _get_radar_grid(self, slc_obj, frequency_str):
-        radar_grid = slc_obj.getRadarGrid(frequency_str)
-
-        if self.select_row is not None or self.select_col is not None:
-            self.plant_transform_obj.update_crop_window(
-                length_orig=radar_grid.length,
-                width_orig=radar_grid.width)
-            y0 = self.plant_transform_obj._offset_y
-            if y0 is None:
-                y0 = 0
-            x0 = self.plant_transform_obj._offset_x
-            if x0 is None:
-                x0 = 0
-            length = self.plant_transform_obj.length
-            if length is None:
-                length = radar_grid.length
-            width = self.plant_transform_obj.width
-            if width is None:
-                width = radar_grid.width
-            print('cropping radar grid...')
-            print('    before:', radar_grid.length, radar_grid.width)
-            radar_grid = radar_grid.offset_and_resize(
-                y0, x0, length, width)
-            print('    after:', radar_grid.length, radar_grid.width)
-
-        return radar_grid
-
-    def _get_coordinates_from_h5_file(self, input_file):
+    def _get_epsg_from_h5_file(self, input_file):
         import shapely.wkt
         nisar_product_obj = open_product(input_file)
         polygon = nisar_product_obj.identification.boundingPolygon
         bounds = shapely.wkt.loads(polygon).bounds
         lat_arr = [bounds[1], bounds[3]]
-        lon_arr = [bounds[2], bounds[0]]
+        lon_arr = [bounds[0], bounds[2]]
 
         if self.epsg is None:
             zones_list = []

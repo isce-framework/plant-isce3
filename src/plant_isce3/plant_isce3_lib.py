@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 
@@ -7,18 +8,21 @@ from collections.abc import Sequence
 from nisar.products.readers import open_product
 import numpy as np
 import isce3
+from osgeo import osr, gdal
 
 import plant
 
 
 class PlantIsce3Script(plant.PlantScript):
 
-    def update_geogrid(self, radar_grid, dem_raster, geo=None,
-                       slc_obj=None):
+    def update_geogrid(self, radar_grid, dem_raster=None, geo=None,
+                       nisar_product_obj=None):
+
+        flag_update_geo = geo is not None
 
         if geo is None:
             geo = isce3.geocode.GeocodeFloat32()
-            geo.orbit = slc_obj.getOrbit()
+            geo.orbit = nisar_product_obj.getOrbit()
             geo.ellipsoid = isce3.core.Ellipsoid()
 
         width = self.plant_geogrid_obj.width
@@ -44,9 +48,16 @@ class PlantIsce3Script(plant.PlantScript):
             step_x = np.nan
 
         if self.epsg == 4326 and not plant.isvalid(step_y):
-            step_y = plant.m_to_deg_lat(30.)
+            step_y = - plant.m_to_deg_lat(30.)
         elif step_y is None:
             step_y = np.nan
+
+        print('*** x0:', x0_orig)
+        print('*** y0:', y0_orig)
+        print('*** step_x:', step_x)
+        print('*** step_y:', step_y)
+        print('*** length:', length)
+        print('*** width:', width)
 
         geo.geogrid(x0_orig,
                     y0_orig,
@@ -56,7 +67,8 @@ class PlantIsce3Script(plant.PlantScript):
                     length,
                     self.epsg)
 
-        geo.update_geogrid(radar_grid, dem_raster)
+        if dem_raster is not None:
+            geo.update_geogrid(radar_grid, dem_raster)
 
         print('*** x0:', self.plant_geogrid_obj.x0)
         print('*** xf:', self.plant_geogrid_obj.xf)
@@ -70,14 +82,30 @@ class PlantIsce3Script(plant.PlantScript):
         projection = plant.epsg_to_wkt(self.epsg)
         print('*** projection:', projection)
 
-        self.plant_geogrid_obj = plant.PlantGeogrid(
+        print('*** x0 (from geo):', geo.geogrid_start_x)
+        print('*** width (from geo):', geo.geogrid_width)
+        print('*** y0 (from geo):', geo.geogrid_start_y)
+        print('*** length (from geo):', geo.geogrid_length)
+        print('*** step_x (from geo):', geo.geogrid_spacing_x)
+        print('*** step_y (from geo):', geo.geogrid_spacing_y)
+
+        plant_geogrid_from_geo_obj = plant.PlantGeogrid(
             y0=geo.geogrid_start_y,
             length=geo.geogrid_length,
             x0=geo.geogrid_start_x,
             width=geo.geogrid_width,
             step_x=geo.geogrid_spacing_x,
-            step_y=-abs(geo.geogrid_spacing_y),
+            step_y=geo.geogrid_spacing_y,
             projection=projection)
+
+        print('*** x0 (from geo 2):', plant_geogrid_from_geo_obj.x0)
+        print('*** xf (from geo 2):', plant_geogrid_from_geo_obj.xf)
+        print('*** y0 (from geo 2):', plant_geogrid_from_geo_obj.y0)
+        print('*** yf (from geo 2):', plant_geogrid_from_geo_obj.yf)
+        print('*** step_x (from geo 2):', plant_geogrid_from_geo_obj.step_x)
+        print('*** step_y (from geo 2):', plant_geogrid_from_geo_obj.step_y)
+
+        self.plant_geogrid_obj.merge(plant_geogrid_from_geo_obj)
 
         print('*** x0 (updated):', self.plant_geogrid_obj.x0)
         print('*** xf (updated):', self.plant_geogrid_obj.xf)
@@ -88,13 +116,133 @@ class PlantIsce3Script(plant.PlantScript):
         print('*** step_y (updated):',
               self.plant_geogrid_obj.step_y)
 
-        geo.geogrid(self.plant_geogrid_obj.x0,
-                    self.plant_geogrid_obj.y0,
-                    self.plant_geogrid_obj.step_x,
-                    self.plant_geogrid_obj.step_y,
-                    self.plant_geogrid_obj.width,
-                    self.plant_geogrid_obj.length,
-                    self.epsg)
+        if flag_update_geo:
+            geo.geogrid(self.plant_geogrid_obj.x0,
+                        self.plant_geogrid_obj.y0,
+                        self.plant_geogrid_obj.step_x,
+                        self.plant_geogrid_obj.step_y,
+                        self.plant_geogrid_obj.width,
+                        self.plant_geogrid_obj.length,
+                        self.epsg)
+
+    def get_coordinates_from_h5_file(self, nisar_product_obj):
+        import shapely.wkt
+
+        polygon = nisar_product_obj.identification.boundingPolygon
+        print('bounding polygon:')
+        with plant.PlantIndent():
+            bounds = shapely.wkt.loads(polygon).bounds
+
+            yf = bounds[1]
+            y0 = bounds[3]
+            xf = bounds[2]
+            x0 = bounds[0]
+            print('polygon WKT:', polygon)
+            print('bounding box:')
+            with plant.PlantIndent():
+                print('min lat:', yf)
+                print('min lon:', x0)
+                print('max lat:', y0)
+                print('max lon:', xf)
+                if self.epsg is None:
+                    zones_list = []
+                    for lat in [y0, yf]:
+                        for lon in [x0, xf]:
+                            zones_list.append(plant_isce3.point2epsg(lon, lat))
+                    vals, counts = np.unique(zones_list, return_counts=True)
+                    self.epsg = int(vals[np.argmax(counts)])
+                    print('closest projection EPSG code supported by NISAR:',
+                          self.epsg)
+
+                y0, x0 = self.proj_inverse(y0, x0, self.epsg)
+
+                yf, xf = self.proj_inverse(yf, xf, self.epsg)
+
+                print('min y:', yf)
+                print('min y:', x0)
+                print('max x:', y0)
+                print('max x:', xf)
+
+                bbox = plant.get_bbox(x0=x0, xf=xf, y0=y0, yf=yf)
+                projection = plant.epsg_to_wkt(self.epsg)
+                rslc_geogrid_obj = plant.get_coordinates(bbox=bbox,
+                                                         projection=projection)
+                self.plant_geogrid_obj.merge(rslc_geogrid_obj)
+
+    def proj_inverse(self, lat, lon, epsg):
+        if epsg is None:
+            return lat, lon
+        wgs84_coordinate_system = osr.SpatialReference()
+        wgs84_coordinate_system.SetWellKnownGeogCS("WGS84")
+        try:
+            wgs84_coordinate_system.SetAxisMappingStrategy(
+                osr.OAMS_TRADITIONAL_GIS_ORDER)
+        except AttributeError:
+            pass
+
+        projected_coordinate_system = osr.SpatialReference()
+        projected_coordinate_system.ImportFromEPSG(epsg)
+        try:
+            projected_coordinate_system.SetAxisMappingStrategy(
+                osr.OAMS_TRADITIONAL_GIS_ORDER)
+        except AttributeError:
+            pass
+
+        transformation = osr.CoordinateTransformation(
+            wgs84_coordinate_system, projected_coordinate_system)
+        x_out, y_out, _ = transformation.TransformPoint(lon, lat, 0)
+        return y_out, x_out
+
+    def get_isce3_geogrid(self, *args, **kwargs):
+        self.update_geogrid(*args, **kwargs)
+
+        geogrid = isce3.product.GeoGridParameters(
+            start_x=self.plant_geogrid_obj.x0,
+            start_y=self.plant_geogrid_obj.y0,
+            spacing_x=self.plant_geogrid_obj.step_x,
+            spacing_y=self.plant_geogrid_obj.step_y,
+            width=self.plant_geogrid_obj.width,
+            length=self.plant_geogrid_obj.length,
+            epsg=self.epsg)
+
+        return geogrid
+
+    def _create_output_raster(self, filename, nbands=1,
+                              gdal_dtype=gdal.GDT_Float32,
+                              width=None, length=None):
+        if not filename:
+            return
+
+        if width is None:
+            width = self.plant_geogrid_obj.width
+        if length is None:
+            length = self.plant_geogrid_obj.length
+
+        output_dir = os.path.dirname(filename)
+
+        if output_dir and not os.path.isdir(output_dir):
+            os.makedirs(output_dir)
+
+        output_format = plant.get_output_format(filename)
+
+        print(f'creating file: {filename}')
+
+        with plant.PlantIndent():
+            print(f'length: {length}')
+            print(f'width: {width}')
+            print(f'nbands: {nbands}')
+            print(f'output format: {output_format}')
+            print(f'GDAL data type: {gdal_dtype}')
+
+        output_obj = isce3.io.Raster(
+            filename,
+            int(width),
+            int(length),
+            int(nbands),
+            int(gdal_dtype),
+            output_format)
+
+        return output_obj
 
     def _get_input_raster_from_nisar_slc(self, input_raster,
                                          frequency_str=None):
@@ -131,8 +279,8 @@ class PlantIsce3Script(plant.PlantScript):
         ret_dict['image_obj'] = image_obj
         return ret_dict
 
-    def _get_radar_grid(self, slc_obj, frequency_str):
-        radar_grid = slc_obj.getRadarGrid(frequency_str)
+    def get_radar_grid(self, nisar_product_obj, frequency_str):
+        radar_grid = nisar_product_obj.getRadarGrid(frequency_str)
 
         if self.select_row is not None or self.select_col is not None:
             self.plant_transform_obj.update_crop_window(
@@ -153,13 +301,65 @@ class PlantIsce3Script(plant.PlantScript):
             radar_grid = radar_grid.offset_and_resize(
                 y0, x0, length, width)
 
-        if (self.nlooks_az > 1 or self.nlooks_rg > 1):
+        if ((getattr(self, 'nlooks_az', None) is not None
+             and self.nlooks_az > 1) or
+                (getattr(self, 'nlooks_rg', None) is not None and
+                 self.nlooks_rg > 1)):
             radar_grid_ml = radar_grid.multilook(self.nlooks_az,
                                                  self.nlooks_rg)
         else:
             radar_grid_ml = radar_grid
 
         return radar_grid_ml
+
+    def get_dem_interp_method(self):
+        return self.get_interp_method(self.dem_interp_method)
+
+    def get_data_interp_method(self):
+        return self.get_interp_method(self.data_interp_method)
+
+    def get_interp_method(self, interp_method):
+
+        if (interp_method is not None and
+                interp_method.upper() == 'SINC'):
+            interp_method_obj = isce3.core.DataInterpMethod.SINC
+        elif (interp_method is not None and
+                interp_method.upper() == 'BILINEAR'):
+            interp_method_obj = isce3.core.DataInterpMethod.BILINEAR
+        elif (interp_method is not None and
+                interp_method.upper() == 'BICUBIC'):
+            interp_method_obj = isce3.core.DataInterpMethod.BICUBIC
+        elif (interp_method is not None and
+                interp_method.upper() == 'NEAREST'):
+            interp_method_obj = isce3.core.DataInterpMethod.NEAREST
+        else:
+            interp_method_obj = isce3.core.DataInterpMethod.BIQUINTIC
+
+        return interp_method_obj
+
+    def get_doppler_grid_lut(self, nisar_product_obj):
+
+        if self.native_doppler_grid:
+            print('*** native dop')
+            doppler = nisar_product_obj.getDopplerCentroid()
+            doppler.bounds_error = False
+        else:
+
+            print('*** zero dop')
+            doppler = isce3.core.LUT2d()
+        return doppler
+
+    def get_doppler_centroid_lut(self, nisar_product_obj):
+
+        if self.zero_doppler_centroid:
+
+            print('*** zero dop')
+            doppler_centroid_lut = isce3.core.LUT2d()
+        else:
+            print('*** native dop')
+            doppler_centroid_lut = nisar_product_obj.getDopplerCentroid()
+            doppler_centroid_lut.bounds_error = False
+        return doppler_centroid_lut
 
 
 def _get_output_dict_from_parser(parser, args, module_name):
@@ -248,6 +448,22 @@ def _get_output_dict_from_parser(parser, args, module_name):
     output_dict['flag_new_mem_output'] = flag_new_mem_output
 
     return output_dict
+
+
+def point2epsg(lon, lat):
+
+    if lon >= 180.0:
+        lon = lon - 360.0
+    if lat >= 60.0:
+        return 3413
+    elif lat <= -60.0:
+        return 3031
+    elif lat > 0:
+        return 32601 + int(np.round((lon + 177) / 6.0))
+    elif lat < 0:
+        return 32701 + int(np.round((lon + 177) / 6.0))
+    raise ValueError(
+        'Could not determine projection for {0},{1}'.format(lat, lon))
 
 
 def execute(command,

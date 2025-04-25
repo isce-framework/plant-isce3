@@ -76,11 +76,11 @@ def get_parser():
                                     help='Use area mode and apply radiometric'
                                     ' terrain correction')
 
-    parser.add_argument('--native-doppler',
-                        dest='native_doppler',
+    parser.add_argument('--native-doppler-grid',
+                        dest='native_doppler_grid',
                         default=False,
                         action='store_true',
-                        help='Native Doppler.')
+                        help='Consider native Doppler grid (skewed geometry)')
 
     parser.add_argument('--upsampling',
                         dest='geogrid_upsampling',
@@ -153,10 +153,10 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
         slc_obj = SLC(hdf5file=self.input_file)
         orbit = slc_obj.getOrbit()
         ellipsoid = isce3.core.Ellipsoid()
-        doppler = self._get_doppler(slc_obj)
+        doppler = self.get_doppler_grid_lut(slc_obj)
 
-        radar_grid_ml = self._get_radar_grid(slc_obj,
-                                             frequency_str)
+        radar_grid_ml = self.get_radar_grid(slc_obj,
+                                            frequency_str)
 
         if input_raster_obj.datatype() == 6:
             GeocodePolygon = isce3.geocode.GeocodePolygonFloat32
@@ -286,12 +286,12 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
 
         for i, (y_vect, x_vect) in enumerate(
                 zip(y_vect_list, x_vect_list)):
-            self.print(f'Processing polygon {i+1}:')
+            self.print(f'Processing polygon {i + 1}:')
             with plant.PlantIndent():
                 self.print(f'Y-vect: {y_vect}')
                 self.print(f'X-vect: {x_vect}')
                 temp_file = plant.get_temporary_file(
-                    suffix=f'polygon_{i+1}_temp_{random.random()}',
+                    suffix=f'polygon_{i + 1}_temp_{random.random()}',
                     append=True)
                 plant.append_temporary_file(temp_file)
                 out_polygon_raster_obj = isce3.io.Raster(
@@ -310,7 +310,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                     print('nbands_off_diag_terms: ', nbands_off_diag_terms)
                     if nbands_off_diag_terms > 0:
                         temp_off_diag_file = plant.get_temporary_file(
-                            suffix=f'polygon_{i+1}_temp_{random.random()}',
+                            suffix=f'polygon_{i + 1}_temp_{random.random()}',
                             append=True)
                         plant.append_temporary_file(temp_off_diag_file)
                         out_off_diag_terms_obj = isce3.io.Raster(
@@ -332,8 +332,8 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                 except BaseException:
                     error_message = plant.get_error_message()
                     self.print(
-                        f'ERROR there was an error processing polygon {i+1}: ' +
-                        error_message)
+                        f'ERROR there was an error processing polygon {
+                            i + 1}: ' + error_message)
                     if not self.flag_add_off_diag_terms:
                         result_list[i] = np.full((1, nbands), np.nan)
                     else:
@@ -346,7 +346,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                 print(f'*** cropped radar grid dimensions: {width}x{length}')
 
                 if self.save_radargrid_data:
-                    radargrid_data_filename = f'polygon_{i+1}_data.bin'
+                    radargrid_data_filename = f'polygon_{i + 1}_data.bin'
                     output_radargrid_data_obj = isce3.io.Raster(
                         radargrid_data_filename,
                         width,
@@ -358,7 +358,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                     plant.append_output_file(radargrid_data_filename)
 
                 if self.save_rtc:
-                    rtc_filename = f'polygon_{i+1}_rtc.bin'
+                    rtc_filename = f'polygon_{i + 1}_rtc.bin'
                     output_rtc_obj = isce3.io.Raster(
                         rtc_filename,
                         width,
@@ -370,7 +370,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                     plant.append_output_file(rtc_filename)
 
                 if self.save_weights:
-                    weights_filename = f'polygon_{i+1}_weights.bin'
+                    weights_filename = f'polygon_{i + 1}_weights.bin'
                     output_weights_obj = isce3.io.Raster(
                         weights_filename,
                         width,
@@ -411,8 +411,8 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                     except BaseException:
                         error_message = plant.get_error_message()
                         self.print(
-                            f'There was an error processing polygon {i+1}: ' +
-                            error_message)
+                            f'There was an error processing polygon {
+                                i + 1}: ' + error_message)
                         if not self.flag_add_off_diag_terms:
                             result_list[i] = np.full((1, nbands), np.nan)
                         else:
@@ -477,44 +477,6 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
         self.save_image(result_list, self.output_file)
         plant.append_output_file(self.output_file)
         return result_list
-
-    def _get_radar_grid(self, slc_obj, frequency_str):
-        radar_grid = slc_obj.getRadarGrid(frequency_str)
-        if (self.nlooks_az > 1 or self.nlooks_rg > 1):
-            radar_grid_ml = radar_grid.multilook(self.nlooks_az,
-                                                 self.nlooks_rg)
-        else:
-            radar_grid_ml = radar_grid
-        if self.select_row is not None or self.select_col is not None:
-            self.plant_transform_obj.update_crop_window(
-                length_orig=radar_grid_ml.length,
-                width_orig=radar_grid_ml.width)
-            y0 = self.plant_transform_obj._offset_y
-            if y0 is None:
-                y0 = 0
-            x0 = self.plant_transform_obj._offset_x
-            if x0 is None:
-                x0 = 0
-            length = self.plant_transform_obj.length
-            if length is None:
-                length = radar_grid_ml.length
-            width = self.plant_transform_obj.width
-            if width is None:
-                width = radar_grid_ml.width
-            radar_grid_ml = radar_grid_ml.offsetAndResize(
-                y0, x0, length, width)
-        return radar_grid_ml
-
-    def _get_doppler(self, slc_obj):
-
-        if self.native_doppler:
-            print('*** native dop')
-            doppler = slc_obj.getDopplerCentroid()
-        else:
-
-            print('*** zero dop')
-            doppler = isce3.core.LUT2d()
-        return doppler
 
 
 def main(argv=None):

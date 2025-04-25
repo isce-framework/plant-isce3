@@ -25,11 +25,11 @@ def get_parser():
                         type=int,
                         help='EPSG code for output grids.')
 
-    parser.add_argument('--native-doppler',
-                        dest='native_doppler',
+    parser.add_argument('--native-doppler-grid',
+                        dest='native_doppler_grid',
                         default=False,
                         action='store_true',
-                        help='Native Doppler.')
+                        help='Consider native Doppler grid (skewed geometry)')
 
     return parser
 
@@ -46,7 +46,7 @@ class PlantIsce3Topo(plant_isce3.PlantIsce3Script):
         frequency_str = list(slc_obj.polarizations.keys())[0]
 
         orbit = slc_obj.getOrbit()
-        doppler = self._get_doppler(slc_obj)
+        doppler = self.get_doppler_grid_lut(slc_obj)
 
         dem_raster = isce3.io.Raster(self.dem_file)
         if self.epsg is None:
@@ -59,8 +59,8 @@ class PlantIsce3Topo(plant_isce3.PlantIsce3Script):
 
         print(f'output EPSG: {self.epsg}')
 
-        radar_grid_ml = self._get_radar_grid(slc_obj,
-                                             frequency_str)
+        radar_grid_ml = self.get_radar_grid(slc_obj,
+                                            frequency_str)
 
         print('radar grid:')
         print('    length:', radar_grid_ml.length)
@@ -81,18 +81,6 @@ class PlantIsce3Topo(plant_isce3.PlantIsce3Script):
                                                  '*.rdr'))
         for output_file in output_filelist:
             plant.append_output_file(output_file)
-
-    def _get_doppler(self, slc_obj):
-
-        if self.native_doppler:
-            print('*** native dop')
-            doppler = slc_obj.getDopplerCentroid()
-            doppler.bounds_error = False
-        else:
-
-            print('*** zero dop')
-            doppler = isce3.core.LUT2d()
-        return doppler
 
 
 def main(argv=None):

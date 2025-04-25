@@ -34,7 +34,7 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
     def run(self):
 
         for i, input_file in enumerate(self.input_files):
-            print(f'## input {i+1}:', input_file)
+            print(f'## input {i + 1}:', input_file)
             with plant.PlantIndent():
                 self._print_nisar_product_info(input_file)
 
@@ -57,8 +57,8 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
 
             yf = bounds[1]
             y0 = bounds[3]
-            x0 = bounds[2]
-            xf = bounds[0]
+            xf = bounds[2]
+            x0 = bounds[0]
             print('polygon WKT:', polygon)
             print('bounding box:')
             with plant.PlantIndent():
@@ -75,7 +75,7 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                 zones_list = []
                 for lat in [y0, yf]:
                     for lon in [x0, xf]:
-                        zones_list.append(point2epsg(lon, lat))
+                        zones_list.append(plant_isce3.point2epsg(lon, lat))
                 vals, counts = np.unique(zones_list, return_counts=True)
                 self.epsg = int(vals[np.argmax(counts)])
                 print('closest projection EPSG code supported by NISAR:',
@@ -111,22 +111,6 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                     print('max Y:', y_max)
                     print('max X:', x_max)
                     print(coord_str)
-
-
-def point2epsg(lon, lat):
-
-    if lon >= 180.0:
-        lon = lon - 360.0
-    if lat >= 60.0:
-        return 3413
-    elif lat <= -60.0:
-        return 3031
-    elif lat > 0:
-        return 32601 + int(np.round((lon + 177) / 6.0))
-    elif lat < 0:
-        return 32701 + int(np.round((lon + 177) / 6.0))
-    raise ValueError(
-        'Could not determine projection for {0},{1}'.format(lat, lon))
 
 
 def lat_lon_to_projected(north, east, epsg):
