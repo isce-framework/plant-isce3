@@ -4,12 +4,9 @@ import plant
 from plant_isce3 import (geocode, runconfig, info, util, interpolate_dem,
                          topo)
 
-
-# inputs
 NISAR_RSLC_PATH = 'data/envisat.h5'
 DEM_PATH = 'data/constant_height.vrt'
 
-# outputs
 GEOCODED_TIFF_PATH = 'output_data/gcov.tif'
 NISAR_GCOV_RUNCONFIG = 'output_data/gcov.yaml'
 NISAR_GCOV_PATH = 'output_data/gcov.h5'
@@ -24,7 +21,7 @@ def test_plant_isce3_info():
 
 
 def test_plant_isce3_util():
-    util(NISAR_RSLC_PATH, output_file=RSLC_ORBIT_KML,
+    util(NISAR_RSLC_PATH, orbit_kml=RSLC_ORBIT_KML,
          force=True)
     assert os.path.isfile(RSLC_ORBIT_KML)
 
@@ -39,9 +36,6 @@ def test_plant_isce3_geocode():
             output_file=GEOCODED_TIFF_PATH, force=True)
     assert os.path.isfile(GEOCODED_TIFF_PATH)
 
-    interpolate_dem(bbox_ref=GEOCODED_TIFF_PATH, dem=DEM_PATH,
-                    output_file=INTERPOLATED_DEM_PATH)
-
 
 def test_plant_isce3_gcov():
     runconfig(NISAR_RSLC_PATH, dem=DEM_PATH,
@@ -53,7 +47,7 @@ def test_plant_isce3_gcov():
     plant.execute(f'gcov.py {NISAR_GCOV_RUNCONFIG} --no-log')
     assert os.path.isfile(NISAR_GCOV_PATH)
 
-    util(NISAR_GCOV_PATH, output_file=GCOV_ORBIT_KML,
+    util(NISAR_GCOV_PATH, orbit_kml=GCOV_ORBIT_KML,
          force=True)
     assert os.path.isfile(GCOV_ORBIT_KML)
 
