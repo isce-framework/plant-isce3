@@ -600,9 +600,12 @@ class ModuleWrapper(object):
         return ret
 
     def _set_command(self, *args, **kwargs):
-        args_str = self._update_args_str(
-            args, args_str='')
-        args_str = ' -i ' + args_str
+        if len(args) > 0:
+            args_str = self._update_args_str(
+                args, args_str='')
+            args_str = ' -i ' + args_str
+        else:
+            args_str = ''
 
         argparse_method = getattr(self._module_obj, 'get_parser')
         parser = argparse_method()

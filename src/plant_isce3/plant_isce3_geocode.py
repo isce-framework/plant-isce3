@@ -449,7 +449,6 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         geo.numiter_geo2rdr = self.geo2rdr_num_iter
 
         dem_interp_method = self.get_dem_interp_method()
-        data_interp_method = self.get_data_interp_method()
 
         self.print(f'*** exponent: {self.exponent}')
         self.print(f'*** input_dtype: {input_dtype}')
@@ -686,7 +685,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
             length=geo_raster_rdr_dem_length,
             nbands=1)
 
-        geo.data_interpolator = data_interp_method
+        geo.data_interpolator = self.data_interp_method
 
         print('*** geocode kwargs:', kwargs)
         geo.geocode(
