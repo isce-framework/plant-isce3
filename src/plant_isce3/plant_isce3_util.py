@@ -22,10 +22,8 @@ def get_parser():
                             default_options=1,
                             output_file=1)
 
-    parser.add_argument('--frequency',
-                        dest='frequency',
-                        type=str,
-                        help='Frequency band, either "A" or "B".')
+    plant_isce3.add_arguments(parser,
+                              frequency=1)
 
     parser.add_argument('--data',
                         '--images',
@@ -77,6 +75,20 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
     def run(self):
 
+        image_obj = plant.read_image(self.input_file,
+                                     flag_no_messages=True)
+        if image_obj is not None:
+            if self.mask_file:
+                self.save_mask(image_obj=image_obj)
+
+            if self.layover_shadow_mask_file:
+                self.save_layover_shadow_mask(image_obj=image_obj)
+
+            if self.data_file:
+                self.save_data(image_obj=image_obj)
+
+            return
+
         nisar_product_obj = open_product(self.input_file)
 
         if self.frequency is None:
@@ -98,82 +110,54 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         if self.data_file:
             self.save_data()
 
-    def save_data(self):
-        image_ref = f'NISAR:{self.input_file}:{self.frequency}'
+    def save_data(self, image_obj=None):
+        if image_obj is None:
+            image_ref = f'NISAR:{self.input_file}:{self.frequency}'
+
         image_obj = self.read_image(image_ref)
         self.save_image(image_obj, output_file=self.data_file)
 
-    def save_mask(self, nisar_product_obj):
-        if nisar_product_obj.productType not in ['GSLC', 'GCOV']:
-            error_msg = (f'ERROR cannot save mask for product type'
-                         f' "{nisar_product_obj.productType}".'
-                         ' Not implemented.')
-            print(error_msg)
-            raise NotImplementedError(error_msg)
+    def save_mask(self, nisar_product_obj=None,
+                  image_obj=None):
 
-        grid_path = (f'{nisar_product_obj.GridPath}'
-                     f'/frequency{self.frequency}/mask')
-        image_ref = f'NETCDF:{self.input_file}:{grid_path}'
-        image_obj = self.read_image(image_ref)
+        if image_obj is None:
+            if nisar_product_obj.productType not in ['GSLC', 'GCOV']:
+                error_msg = (f'ERROR cannot save mask for product type'
+                             f' "{nisar_product_obj.productType}".'
+                             ' Not implemented.')
+                print(error_msg)
+                raise NotImplementedError(error_msg)
 
-        mask_ctable = gdal.ColorTable()
+            grid_path = (f'{nisar_product_obj.GridPath}'
+                         f'/frequency{self.frequency}/mask')
+            image_ref = f'NETCDF:{self.input_file}:{grid_path}'
 
-        mask_ctable.SetColorEntry(0, (175, 175, 175))
-
-        mask_ctable.SetColorEntry(255, (0, 0, 0))
-
-        if not self.cmap:
-            self.cmap = 'viridis'
+            image_obj = self.read_image(image_ref)
 
         mask_array = image_obj.image
-        n_subswaths = np.max(mask_array[(mask_array != 255)])
-        print('number of subswaths:', n_subswaths)
 
-        for subswath in range(1, n_subswaths + 1):
-            color = plant.get_color_display(subswath + 1,
-                                            flag_decreasing=True,
-                                            n_colors=n_subswaths + 2,
-                                            cmap=self.cmap)
-            color_rgb = tuple([int(255 * x) for x in color[0:3]])
-            mask_ctable.SetColorEntry(subswath, color_rgb)
+        mask_ctable = self.get_mask_ctable(mask_array)
 
         self.save_image(image_obj, output_file=self.mask_file,
                         out_null=255, ctable=mask_ctable)
 
-    def save_layover_shadow_mask(self, nisar_product_obj):
-        if nisar_product_obj.productType not in ['GCOV']:
-            error_msg = (f'ERROR cannot save mask for product type'
-                         f' "{nisar_product_obj.productType}".'
-                         ' Not implemented.')
-            print(error_msg)
-            raise NotImplementedError(error_msg)
+    def save_layover_shadow_mask(self, nisar_product_obj=None,
+                                 image_obj=None):
 
-        grid_path = (f'{nisar_product_obj.GridPath}'
-                     f'/frequency{self.frequency}/layoverShadowMask')
-        image_ref = f'NETCDF:{self.input_file}:{grid_path}'
-        image_obj = self.read_image(image_ref)
+        if image_obj is None:
+            if nisar_product_obj.productType not in ['GCOV']:
+                error_msg = (f'ERROR cannot save mask for product type'
+                             f' "{nisar_product_obj.productType}".'
+                             ' Not implemented.')
+                print(error_msg)
+                raise NotImplementedError(error_msg)
 
-        layover_shadow_mask_ctable = gdal.ColorTable()
+            grid_path = (f'{nisar_product_obj.GridPath}'
+                         f'/frequency{self.frequency}/layoverShadowMask')
+            image_ref = f'NETCDF:{self.input_file}:{grid_path}'
+            image_obj = self.read_image(image_ref)
 
-        layover_shadow_mask_ctable.SetColorEntry(0, (175, 175, 175))
-
-        layover_shadow_mask_ctable.SetColorEntry(1, (64, 64, 64))
-
-        layover_shadow_mask_ctable.SetColorEntry(2, (223, 223, 223))
-
-        layover_shadow_mask_ctable.SetColorEntry(3, (0, 255, 255))
-
-        layover_shadow_mask_ctable.SetColorEntry(11, (32, 32, 32))
-
-        layover_shadow_mask_ctable.SetColorEntry(13, (0, 128, 128))
-
-        layover_shadow_mask_ctable.SetColorEntry(22, (255, 255, 255))
-
-        layover_shadow_mask_ctable.SetColorEntry(23, (128, 255, 255))
-
-        layover_shadow_mask_ctable.SetColorEntry(33, (128, 128, 128))
-
-        layover_shadow_mask_ctable.SetColorEntry(255, (0, 0, 0))
+        layover_shadow_mask_ctable = self.get_layover_shadow_mask_ctable()
 
         self.save_image(image_obj, output_file=self.layover_shadow_mask_file,
                         out_null=255, ctable=layover_shadow_mask_ctable)

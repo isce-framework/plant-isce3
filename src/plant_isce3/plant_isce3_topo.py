@@ -20,16 +20,33 @@ def get_parser():
                             multilook=1,
                             output_dir=2)
 
-    parser.add_argument('--epsg',
-                        dest='epsg',
-                        type=int,
-                        help='EPSG code for output grids.')
+    plant_isce3.add_arguments(parser,
+                              burst_ids=1,
+                              epsg=1,
+                              native_doppler_grid=1,
+                              orbit_files=1)
 
-    parser.add_argument('--native-doppler-grid',
-                        dest='native_doppler_grid',
-                        default=False,
-                        action='store_true',
-                        help='Consider native Doppler grid (skewed geometry)')
+    parser.add_argument('--rdr2geo-threshold',
+                        type=float,
+                        dest='threshold_rdr2geo',
+                        help='Range convergence threshold for rdr2geo')
+
+    parser.add_argument('--rdr2geo-num-iter',
+                        '--rdr2geo-numiter',
+                        type=float,
+                        dest='numiter_rdr2geo',
+                        help='Maximum number of iterations for rdr2geo')
+
+    parser.add_argument('--rdr2geo-extra-iter',
+                        '--rdr2geo-extraiter',
+                        type=float,
+                        dest='extraiter_rdr2geo',
+                        help='Extra iterations for rdr2geo')
+
+    parser.add_argument('--lines-per-block',
+                        type=int,
+                        dest='lines_per_block',
+                        help='Lines per block')
 
     return parser
 
@@ -42,37 +59,39 @@ class PlantIsce3Topo(plant_isce3.PlantIsce3Script):
 
     def run(self):
 
-        slc_obj = SLC(hdf5file=self.input_file)
-        frequency_str = list(slc_obj.polarizations.keys())[0]
-
-        orbit = slc_obj.getOrbit()
-        doppler = self.get_doppler_grid_lut(slc_obj)
+        plant_product_obj = self.load_product()
+        radar_grid_ml = plant_product_obj.get_radar_grid_ml()
+        orbit = plant_product_obj.get_orbit()
+        doppler = plant_product_obj.get_grid_doppler()
 
         dem_raster = isce3.io.Raster(self.dem_file)
         if self.epsg is None:
             self.epsg = dem_raster.get_epsg()
 
-        if self.nlooks_az is None:
-            self.nlooks_az = 1
-        if self.nlooks_rg is None:
-            self.nlooks_rg = 1
-
         print(f'output EPSG: {self.epsg}')
 
-        radar_grid_ml = self.get_radar_grid(slc_obj,
-                                            frequency_str)
-
-        print('radar grid:')
+        print('Radar grid:')
         print('    length:', radar_grid_ml.length)
         print('    width:', radar_grid_ml.width)
 
         ellipsoid = isce3.core.Ellipsoid()
 
+        topo_kwargs = {}
+        if self.threshold_rdr2geo is not None:
+            topo_kwargs['threshold'] = self.threshold_rdr2geo
+        if self.numiter_rdr2geo is not None:
+            topo_kwargs['numiter'] = self.numiter_rdr2geo
+        if self.extraiter_rdr2geo is not None:
+            topo_kwargs['extraiter'] = self.extraiter_rdr2geo
+        if self.lines_per_block is not None:
+            topo_kwargs['lines_per_block'] = self.lines_per_block
+
         topo = isce3.geometry.Rdr2Geo(radar_grid_ml,
                                       orbit,
                                       ellipsoid,
                                       epsg_out=self.epsg,
-                                      doppler=doppler)
+                                      doppler=doppler,
+                                      **topo_kwargs)
 
         if self.output_dir and not os.path.isdir(self.output_dir):
             os.makedirs(self.output_dir)
