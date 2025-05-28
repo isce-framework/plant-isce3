@@ -18,18 +18,9 @@ def get_parser():
                             output_file=2,
                             geo=1)
 
-    parser.add_argument('--epsg',
-                        action='store',
-                        dest='epsg',
-                        type=int,
-                        default=None,
-                        help='EPSG code for output grid')
-
-    parser.add_argument('--dem-interp-method',
-                        dest='dem_interp_method',
-                        type=str,
-                        help='DEM interpolation method. Options:'
-                        ' sinc, bilinear, bicubic, nearest, biquintic')
+    plant_isce3.add_arguments(parser,
+                              dem_interp_method=1,
+                              epsg=1)
 
     return parser
 
