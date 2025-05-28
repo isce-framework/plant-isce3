@@ -74,6 +74,7 @@ def add_arguments(parser,
 
     if burst_ids:
         parser.add_argument('--burst-id',
+                            '--burst-ids',
                             dest='burst_ids',
                             nargs='+',
                             type=str,
@@ -578,7 +579,10 @@ class PlantIsce3Sensor():
     def burst(self):
         if len(self.burst_dict) == 1:
 
-            return self.burst_list[0][self.burst_list[0].keys()[0]]
+            burst_id = list(self.burst_dict.keys())[0]
+            first_pol = list(self.burst_dict[burst_id])[0]
+            print('first pol:', first_pol)
+            return self.burst_dict[burst_id][first_pol]
 
         print('ERROR the dataset contains multiple bursts:'
               f' {self.burst_dict.keys()}. Please select a burst.')
