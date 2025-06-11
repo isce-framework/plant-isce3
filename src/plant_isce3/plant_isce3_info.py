@@ -94,6 +94,18 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
             for freq, pol_list in freq_pol_dict.items():
                 print(f'{freq}: {pol_list}')
         polygon = nisar_product_obj.identification.boundingPolygon
+
+        if (nisar_product_obj.productType == 'GCOV' or
+                nisar_product_obj.productType == 'GSLC'):
+            for freq, pol_list in freq_pol_dict.items():
+                print(f'## geogrid frequency {freq}')
+                with plant.PlantIndent():
+                    image_obj = self.read_image(
+                        f'NISAR:{self.input_file}:{freq}')
+                    plant_geogrid_obj = plant.get_coordinates(
+                        image_obj=image_obj)
+                    plant_geogrid_obj.print()
+
         print('## bounding polygon:')
         with plant.PlantIndent():
             bounds = shapely.wkt.loads(polygon).bounds
