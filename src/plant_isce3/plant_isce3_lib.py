@@ -112,7 +112,7 @@ def add_arguments(parser,
             "--data-interp-method",
             dest="data_interp_method",
             type=str,
-            default="sinc",
+
             required=data_interp_method == 2,
             help=(
                 "Data interpolation method. Options:"
@@ -656,7 +656,7 @@ class PlantIsce3Sensor():
             return
 
         if len(all_tec_files) == 1:
-            return self.tec_file[0]
+            return self.tec_files[0]
 
         if self.verbose:
             print('A list of TEC files has been provided. Filtering'
@@ -852,6 +852,13 @@ class PlantIsce3Sensor():
 
 
 class PlantIsce3Script(plant.PlantScript):
+
+    def __init__(self, *args, **kwargs):
+
+        try:
+            super().__init__(*args, plant_isce3=True, **kwargs)
+        except TypeError:
+            super().__init__(*args, **kwargs)
 
     def load_product(self, verbose=True):
 
@@ -1577,6 +1584,7 @@ def execute(command,
             start_time = time.time()
         try:
             ret = method_to_execute(argv)
+
         except SystemExit as e:
             if len(e.args) == 0 or e.args[0] != 0:
                 flag_error = True
@@ -1603,8 +1611,9 @@ def execute(command,
         else:
             ret_str = ''
         if verbose:
-            print(f'PLAnT (API-completed) - {module_name}.py {arguments}'
+            print(f'PLAnT (API-completed) - {command_line}'
                   f'{ret_str}')
+        return ret
 
 
 class ModuleWrapper(object):
@@ -1636,9 +1645,12 @@ class ModuleWrapper(object):
         flag_mute = kwargs.get('flag_mute', None)
         verbose = kwargs.get('verbose', None) and not (flag_mute is True)
         if self._ref is not None:
+
             ret = self._ref.execute(self._command, verbose=verbose)
         else:
+
             ret = execute(self._command, verbose=verbose)
+
         return ret
 
     def _set_command(self, *args, **kwargs):

@@ -517,6 +517,8 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
             length=geo_raster_rdr_dem_length,
             nbands=1)
 
+        if not self.data_interp_method:
+            self.data_interp_method = 'sinc'
         geo.data_interpolator = self.data_interp_method
 
         print('*** geocode kwargs:', kwargs)
