@@ -1,7 +1,8 @@
 import os
 import pytest
 import plant
-from plant_isce3 import (geocode, runconfig, info, util, interpolate_dem,
+from plant_isce3 import (geocode, runconfig, info, util,
+
                          topo)
 
 NISAR_RSLC_PATH = 'data/envisat.h5'
@@ -12,7 +13,7 @@ NISAR_GCOV_RUNCONFIG = 'output_data/gcov.yaml'
 NISAR_GCOV_PATH = 'output_data/gcov.h5'
 RSLC_ORBIT_KML = 'output_data/rslc_orbit.kml'
 GCOV_ORBIT_KML = 'output_data/gcov_orbit.kml'
-INTERPOLATED_DEM_PATH = 'output_data/interpolated_dem.tif'
+
 TOPO_DIR = 'output_data/topo_dir'
 
 

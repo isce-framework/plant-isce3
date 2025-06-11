@@ -2,9 +2,8 @@
 
 import plant
 import plant_isce3
-from osgeo import gdal
+
 import isce3
-import numpy as np
 
 
 def get_parser():
@@ -13,28 +12,20 @@ def get_parser():
     epilog = ''
     parser = plant.argparse(epilog=epilog,
                             description=descr,
-                            dem_file=2,
+                            input_file=2,
+
                             default_options=1,
                             output_file=2,
                             geo=1)
 
-    parser.add_argument('--epsg',
-                        action='store',
-                        dest='epsg',
-                        type=int,
-                        default=None,
-                        help='EPSG code for output grid')
-
-    parser.add_argument('--dem-interp-method',
-                        dest='dem_interp_method',
-                        type=str,
-                        help='DEM interpolation method. Options:'
-                        ' sinc, bilinear, bicubic, nearest, biquintic')
+    plant_isce3.add_arguments(parser,
+                              data_interp_method=1,
+                              epsg=1)
 
     return parser
 
 
-class PlantIsce3InterpolateDem(plant_isce3.PlantIsce3Script):
+class PlantIsce3Resample(plant_isce3.PlantIsce3Script):
 
     def __init__(self, parser, argv=None):
 
@@ -47,7 +38,7 @@ class PlantIsce3InterpolateDem(plant_isce3.PlantIsce3Script):
             self.print('Operation cancelled.', 1)
             return
 
-        dem_raster = isce3.io.Raster(self.dem_file)
+        dem_raster = isce3.io.Raster(self.input_file)
         if self.epsg is None:
             self.epsg = dem_raster.get_epsg()
 
@@ -58,43 +49,47 @@ class PlantIsce3InterpolateDem(plant_isce3.PlantIsce3Script):
             spacing_y=self.plant_geogrid_obj.step_y,
             width=int(self.plant_geogrid_obj.width),
             length=int(self.plant_geogrid_obj.length),
-            epsg=self.epsg)
+            epsg=self.plant_geogrid_obj.epsg)
 
         geogrid_obj.print()
 
         nbands = 1
         shape = [nbands, geogrid_obj.length, geogrid_obj.width]
 
-        interpolated_dem_raster = self._create_output_raster(
+        output_raster = self._create_output_raster(
             self.output_file, nbands=shape[0], length=shape[1],
             width=shape[2])
-        output_obj_list = [interpolated_dem_raster]
+        output_obj_list = [output_raster]
 
-        dem_interp_method = _get_dem_interp_method(self.dem_interp_method)
+        if not self.data_interp_method:
+            self.data_interp_method = 'bicubic'
+
+        data_interp_method = _get_data_interp_method(
+            self.data_interp_method)
 
         isce3.geogrid.relocate_raster(dem_raster,
                                       geogrid_obj,
-                                      interpolated_dem_raster,
-                                      dem_interp_method)
+                                      output_raster,
+                                      data_interp_method)
+
+        plant.plant_config.output_files.append(self.output_file)
+        self.print(f'## file saved: {self.output_file}')
 
         for obj in output_obj_list:
             del obj
 
-        for f in plant.plant_config.output_files:
-            self.print(f'## file saved: {f}')
 
-
-def _get_dem_interp_method(dem_interp_method):
-    if (dem_interp_method is None or
-            dem_interp_method.upper() == 'BIQUINTIC'):
+def _get_data_interp_method(data_interp_method):
+    if (data_interp_method is None or
+            data_interp_method.upper() == 'BIQUINTIC'):
         return isce3.core.DataInterpMethod.BIQUINTIC
-    if (dem_interp_method.upper() == 'SINC'):
+    if (data_interp_method.upper() == 'SINC'):
         return isce3.core.DataInterpMethod.SINC
-    if (dem_interp_method.upper() == 'BILINEAR'):
+    if (data_interp_method.upper() == 'BILINEAR'):
         return isce3.core.DataInterpMethod.BILINEAR
-    if (dem_interp_method.upper() == 'BICUBIC'):
+    if (data_interp_method.upper() == 'BICUBIC'):
         return isce3.core.DataInterpMethod.BICUBIC
-    if (dem_interp_method.upper() == 'NEAREST'):
+    if (data_interp_method.upper() == 'NEAREST'):
         return isce3.core.DataInterpMethod.NEAREST
     raise NotImplementedError
 
@@ -102,7 +97,7 @@ def _get_dem_interp_method(dem_interp_method):
 def main(argv=None):
     with plant.PlantLogger():
         parser = get_parser()
-        self_obj = PlantIsce3InterpolateDem(parser, argv)
+        self_obj = PlantIsce3Resample(parser, argv)
         ret = self_obj.run()
         return ret
 

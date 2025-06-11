@@ -17,10 +17,10 @@ def get_parser():
                             description=descr,
                             input_files=1)
 
-    parser.add_argument('--epsg',
-                        dest='epsg',
-                        type=int,
-                        help='EPSG code for output grids.')
+    plant_isce3.add_arguments(parser,
+                              burst_ids=1,
+                              epsg=1,
+                              orbit_files=1)
 
     return parser
 
@@ -33,25 +33,80 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
 
     def run(self):
 
-        for i, input_file in enumerate(self.input_files):
-            print(f'## input {i + 1}:', input_file)
+        for i, self.input_file in enumerate(self.input_files):
+            print(f'## input {i + 1}:', self.input_file)
+            plant_product_obj = self.load_product(verbose=False)
             with plant.PlantIndent():
-                self._print_nisar_product_info(input_file)
+                sensor_name = plant_product_obj.sensor_name
+                if (sensor_name == 'Sentinel-1'):
+                    self._print_sentinel1_product_info(plant_product_obj)
+                elif (sensor_name == 'NISAR'):
+                    self._print_nisar_product_info()
+                else:
+                    print(f'ERROR unsupported product "{sensor_name}"')
+                    return
 
-    def _print_nisar_product_info(self, input_file):
+    def _print_sentinel1_product_info(self, plant_product_obj):
+        print('## Sentinel-1 product')
+        pol_list = None
+        burst_id_dict = {}
+
+        print('## burst(s):')
+        for burst_pol_dict in plant_product_obj.burst_dict.values():
+            if pol_list is None:
+                pol_list = list(burst_pol_dict.keys())
+            burst = burst_pol_dict[pol_list[0]]
+            burst_id = str(burst.burst_id)
+            iw_index = burst_id.upper().find('IW')
+            if iw_index < 0:
+                print(f'ERROR invalid burst ID: {burst_id}')
+            subswath_number = int(burst_id[iw_index + 2])
+            iw_key = f'IW{subswath_number}'
+            if iw_key not in burst_id_dict.keys():
+                burst_id_dict[iw_key] = []
+            burst_id_dict[iw_key].append(burst_id)
+            with plant.PlantIndent():
+                y = burst.center.y
+                x = burst.center.x
+                epsg = plant_isce3.point2epsg(x, y)
+                y_str = plant.format_number(y, sigfigs=4)
+                x_str = plant.format_number(x, sigfigs=4)
+                print(burst_id)
+                with plant.PlantIndent():
+                    print(f'center pos. (Y, X): ({y_str}, {x_str})')
+                    print(f'EPSG: {epsg}')
+
+        print('## polarizations:', pol_list)
+        for key, value in burst_id_dict.items():
+            print(f'## burst(s) in subswath {key}:', value)
+
+    def _print_nisar_product_info(self):
         import shapely.wkt
-        nisar_product_obj = open_product(input_file)
+        nisar_product_obj = open_product(self.input_file)
 
-        print('product type:', nisar_product_obj.productType)
-        print('SAR band:', nisar_product_obj.sarBand)
-        print('level:', nisar_product_obj.getProductLevel())
-        print('frequencies/polarizations:')
+        print('## NISAR product')
+        print('## product type:', nisar_product_obj.productType)
+        print('## SAR band:', nisar_product_obj.sarBand)
+        print('## level:', nisar_product_obj.getProductLevel())
+        print('## frequencies/polarizations:')
         freq_pol_dict = nisar_product_obj.polarizations
         with plant.PlantIndent():
             for freq, pol_list in freq_pol_dict.items():
                 print(f'{freq}: {pol_list}')
         polygon = nisar_product_obj.identification.boundingPolygon
-        print('bounding polygon:')
+
+        if (nisar_product_obj.productType == 'GCOV' or
+                nisar_product_obj.productType == 'GSLC'):
+            for freq, pol_list in freq_pol_dict.items():
+                print(f'## geogrid frequency {freq}')
+                with plant.PlantIndent():
+                    image_obj = self.read_image(
+                        f'NISAR:{self.input_file}:{freq}')
+                    plant_geogrid_obj = plant.get_coordinates(
+                        image_obj=image_obj)
+                    plant_geogrid_obj.print()
+
+        print('## bounding polygon:')
         with plant.PlantIndent():
             bounds = shapely.wkt.loads(polygon).bounds
 

@@ -26,6 +26,11 @@ def get_parser():
 
                             output_file=1)
 
+    plant_isce3.add_arguments(parser,
+                              epsg=1,
+                              orbit_files=1,
+                              tec_files=1)
+
     parser.add_argument('--runconfig',
                         dest='runconfig',
                         type=str,
@@ -43,13 +48,7 @@ def get_parser():
                         dest='flag_standard_product',
                         default=False,
                         action='store_true',
-                        help='Generate NISAR standard product.')
-
-    parser.add_argument('--tec',
-                        '--tec-file',
-                        dest='tec_file',
-                        type=str,
-                        help='Total electron content file.')
+                        help='Generate standard NISAR product.')
 
     parser.add_argument('--sas-output-file',
                         '--sas-of',
@@ -57,21 +56,10 @@ def get_parser():
                         type=str,
                         help='SAS output file.')
 
-    parser.add_argument('--external-orbit',
-                        '--external-orbit_file',
-                        dest='external_orbit_file',
-                        type=str,
-                        help='Exterinal orbit file.')
-
     parser.add_argument('--gslc',
                         action='store_true',
                         dest='flag_gslc',
                         help='Generated geocoded SLC runconfig')
-
-    parser.add_argument('--epsg',
-                        dest='epsg',
-                        type=int,
-                        help='EPSG code for output grids.')
 
     parser.add_argument('--snap-x',
                         dest='snap_x',
@@ -104,14 +92,18 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
         else:
             self.workflow_name = 'GCOV'
 
+        plant_product_obj = self.load_product()
+        radar_grid = plant_product_obj.get_radar_grid_ml()
+        orbit = plant_product_obj.get_orbit()
+
+        self.tec_file = plant_product_obj.get_tec_file()
+        self.orbit_file = plant_product_obj.get_orbit_file()
+
         ellipsoid = isce3.core.Ellipsoid()
 
         slc_obj = SLC(hdf5file=self.input_file)
-        frequency_str = list(slc_obj.polarizations.keys())[0]
 
         orbit = slc_obj.getOrbit()
-
-        radar_grid = self.get_radar_grid(slc_obj, frequency_str)
 
         geo = isce3.geocode.GeocodeFloat32()
 
@@ -200,9 +192,9 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
             if self.tec_file:
                 groups['dynamic_ancillary_file_group']['tec_file'] = \
                     self.tec_file
-            if self.external_orbit_file:
+            if self.orbit_file:
                 groups['dynamic_ancillary_file_group']['orbit_file'] = \
-                    self.external_orbit_file
+                    self.orbit_file
 
             groups['processing']['geocode']['output_epsg'] = int(self.epsg)
 
@@ -355,8 +347,8 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
         print('            dem_file:', self.dem_file, **kwargs)
         if self.tec_file:
             print('            tec_file:', self.tec_file, **kwargs)
-        if self.external_orbit_file:
-            print('            orbit_file:', self.external_orbit_file,
+        if self.orbit_file:
+            print('            orbit_file:', self.orbit_file,
                   **kwargs)
         print('        product_path_group:', **kwargs)
         print(f'            product_path: output_{workflow_name}', **kwargs)
@@ -433,7 +425,8 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
             zones_list = []
             for i in range(2):
                 for j in range(2):
-                    zones_list.append(point2epsg(lon_arr[i], lat_arr[j]))
+                    zones_list.append(plant_isce3.point2epsg(lon_arr[i],
+                                                             lat_arr[j]))
             vals, counts = np.unique(zones_list, return_counts=True)
             self.epsg = int(vals[np.argmax(counts)])
             print('Closest UTM zone: EPSG', self.epsg)
@@ -442,22 +435,6 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
 def snap_coord(val, snap, offset, round_func):
     snapped_value = round_func(float(val - offset) / snap) * snap + offset
     return snapped_value
-
-
-def point2epsg(lon, lat):
-
-    if lon >= 180.0:
-        lon = lon - 360.0
-    if lat >= 60.0:
-        return 3413
-    elif lat <= -60.0:
-        return 3031
-    elif lat > 0:
-        return 32601 + int(np.round((lon + 177) / 6.0))
-    elif lat < 0:
-        return 32701 + int(np.round((lon + 177) / 6.0))
-    raise ValueError(
-        'Could not determine projection for {0},{1}'.format(lat, lon))
 
 
 def lat_lon_to_projected(north, east, epsg):

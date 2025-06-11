@@ -1,28 +1,883 @@
 import os
 import sys
 import time
+import datetime
+import json
+import gc
+import tempfile
 
 import plant_isce3
 import importlib
 from collections.abc import Sequence
 from nisar.products.readers import open_product
+from nisar.workflows.geogrid import _grid_size
 import numpy as np
 import isce3
-from osgeo import osr, gdal
+from osgeo import osr, gdal, gdal_array
+
+from nisar.products.readers.orbit import load_orbit_from_xml
 
 import plant
 
 
+def add_arguments(parser,
+                  abs_cal_factor=0,
+                  burst_ids=0,
+
+                  geocode_cov_options=0,
+
+                  data_interp_method=0,
+                  dem_interp_method=0,
+                  flag_upsample_radar_grid=0,
+                  out_off_diag_terms=0,
+                  geogrid_upsampling=0,
+                  exponent=0,
+                  out_geo_rdr=0,
+                  out_geo_dem=0,
+                  out_geo_nlooks=0,
+                  out_geo_rtc=0,
+                  out_geo_rtc_gamma0_to_sigma0=0,
+                  output_rtc=0,
+                  memory_mode=0,
+                  min_block_size=0,
+                  max_block_size=0,
+                  clip_min=0,
+                  clip_max=0,
+                  min_nlooks=0,
+                  geo2rdr_threshold=0,
+                  geo2rdr_num_iter=0,
+
+                  epsg=0,
+                  frequency=0,
+                  input_raster=0,
+
+                  rtc_options=0,
+                  input_rtc=0,
+                  terrain_correction_type=0,
+                  rtc_upsampling=0,
+                  rtc_min_value_db=0,
+                  input_terrain_radiometry=0,
+                  output_terrain_radiometry=0,
+
+                  native_doppler_grid=0,
+                  orbit_files=0,
+                  tec_files=0):
+
+    if abs_cal_factor:
+        parser.add_argument('--abs-cal-factor',
+                            '--abs-calibration-factor',
+                            '--calibration-factor',
+                            dest='abs_cal_factor',
+                            type=float,
+                            required=abs_cal_factor == 2,
+                            help='Absolute calibration factor')
+
+    if burst_ids:
+        parser.add_argument('--burst-id',
+                            '--burst-ids',
+                            dest='burst_ids',
+                            nargs='+',
+                            type=str,
+                            required=burst_ids == 2,
+                            help=('Sentinel-1 burst IDs (only applicable for'
+                                  ' Sentinel-1 datasets).'))
+
+    if (geocode_cov_options or
+            data_interp_method or
+            dem_interp_method or
+            flag_upsample_radar_grid or
+            out_off_diag_terms or
+            geogrid_upsampling or
+            exponent or
+            out_geo_rdr or
+            out_geo_dem or
+            out_geo_nlooks or
+            out_geo_rtc or
+            out_geo_rtc_gamma0_to_sigma0 or
+            output_rtc or
+            memory_mode or
+            min_block_size or
+            max_block_size or
+            clip_min or
+            clip_max or
+            min_nlooks or
+            geo2rdr_threshold or
+            geo2rdr_num_iter):
+        geocode_cov_group = parser.add_argument_group(
+            plant.PARSER_GROUP_SEPARATOR +
+            'ISCE3 GeocodeCov arguments')
+
+    if geocode_cov_options or data_interp_method:
+        geocode_cov_group.add_argument(
+            "--data-interp-method",
+            dest="data_interp_method",
+            type=str,
+
+            required=data_interp_method == 2,
+            help=(
+                "Data interpolation method. Options:"
+                " sinc, bilinear, bicubic, nearest,"
+                " biquintic"
+            ),
+        )
+
+    if geocode_cov_options or dem_interp_method:
+        geocode_cov_group.add_argument(
+            "--dem-interp-method",
+            dest="dem_interp_method",
+            type=str,
+            default="biquintic",
+            required=dem_interp_method == 2,
+            help=(
+                "DEM interpolation method. Options:"
+                " sinc, bilinear, bicubic, nearest,"
+                " biquintic"
+            ),
+        )
+
+    if geocode_cov_options or flag_upsample_radar_grid:
+        geocode_cov_group.add_argument(
+            "--double-radar-grid-sampling",
+            "--upsample-radar-grid",
+            dest="flag_upsample_radar_grid",
+            default=None,
+            action="store_true",
+            required=flag_upsample_radar_grid == 2,
+            help="Double radar grid sampling.",
+        )
+
+    if geocode_cov_options or out_off_diag_terms:
+        geocode_cov_group.add_argument(
+            "--out-off-diag-terms",
+            "--out-off-diagonal-terms",
+            dest="out_off_diag_terms",
+            type=str,
+            required=out_off_diag_terms == 2,
+            help="Output off-diagonal terms.",
+        )
+
+    if geocode_cov_options or geogrid_upsampling:
+        geocode_cov_group.add_argument(
+            "--upsampling",
+            dest="geogrid_upsampling",
+            type=float,
+            required=geogrid_upsampling == 2,
+            help="Geogrid upsample factor.",
+        )
+
+    if geocode_cov_options or exponent:
+        geocode_cov_group.add_argument(
+            "--exponent",
+            dest="exponent",
+            type=int,
+            required=exponent == 2,
+            help="Exponent for geocoding."
+        )
+
+    if geocode_cov_options or out_geo_rdr:
+        geocode_cov_group.add_argument(
+            "--out-geo-rdr",
+            dest="out_geo_rdr",
+            type=str,
+            required=out_geo_rdr == 2,
+            help="Output geo rdr file",
+        )
+
+    if geocode_cov_options or out_geo_dem:
+        geocode_cov_group.add_argument(
+            "--out-geo-dem",
+            dest="out_geo_dem",
+            type=str,
+            required=out_geo_dem == 2,
+            help="Output interpolated DEM file",
+        )
+
+    if geocode_cov_options or out_geo_nlooks:
+        geocode_cov_group.add_argument(
+            "--out-geo-nlooks",
+            dest="out_geo_nlooks",
+            type=str,
+            required=out_geo_nlooks == 2,
+            help="Output geo nlooks file",
+        )
+
+    if geocode_cov_options or out_geo_rtc:
+        geocode_cov_group.add_argument(
+            "--out-geo-rtc",
+            dest="out_geo_rtc",
+            type=str,
+            required=out_geo_rtc == 2,
+            help="Output geo RTC file",
+        )
+
+    if geocode_cov_options or out_geo_rtc_gamma0_to_sigma0:
+        geocode_cov_group.add_argument(
+            "--out-geo-rtc-gamma-to-sigma",
+            "--out-geo-rtc-anf-gamma-to-sigma",
+            "--out-geo-rtc-gamma0-to-sigma0",
+            dest="out_geo_rtc_gamma0_to_sigma0",
+            type=str,
+            required=out_geo_rtc_gamma0_to_sigma0 == 2,
+            help="Output geo RTC ANF to sigma0 file",
+        )
+
+    if geocode_cov_options or output_rtc:
+        geocode_cov_group.add_argument(
+            "--out-rtc",
+            "--output-rtc",
+            dest="output_rtc",
+            type=str,
+            required=output_rtc == 2,
+            help="Output RTC ANF file (in slant-range)",
+        )
+
+    if geocode_cov_options or memory_mode:
+        geocode_cov_group.add_argument(
+            "--memory-mode",
+            dest="memory_mode",
+            type=str,
+            choices=[
+                "auto",
+                "single-block",
+                "blocks-geogrid",
+                "blocks-geogrid-and-radargrid",
+            ],
+            required=memory_mode == 2,
+            help="Memory mode",
+        )
+
+    if geocode_cov_options or min_block_size:
+        geocode_cov_group.add_argument(
+            "--min-block-size",
+            type=int,
+            dest="min_block_size",
+            required=min_block_size == 2,
+            help="Minimum block size in Bytes",
+        )
+
+    if geocode_cov_options or max_block_size:
+        geocode_cov_group.add_argument(
+            "--max-block-size",
+            type=int,
+            dest="max_block_size",
+            required=max_block_size == 2,
+            help="Maximum block size in Bytes",
+        )
+
+    if geocode_cov_options or clip_min:
+        geocode_cov_group.add_argument(
+            "--clip-min",
+            type=float,
+            dest="clip_min",
+            required=clip_min == 2,
+            help="Clip (limit) min output values",
+        )
+
+    if geocode_cov_options or clip_max:
+        geocode_cov_group.add_argument(
+            "--clip-max",
+            type=float,
+            dest="clip_max",
+            required=clip_max == 2,
+            help="Clip (limit) max output values",
+        )
+
+    if geocode_cov_options or min_nlooks:
+        geocode_cov_group.add_argument(
+            "--nlooks-min",
+            "--min-nlooks",
+            type=float,
+            dest="min_nlooks",
+            required=min_nlooks == 2,
+            help="Minimum number of looks. Geogrid data"
+            " below this limit will be set to NaN.",
+        )
+
+    if geocode_cov_options or geo2rdr_threshold:
+        geocode_cov_group.add_argument(
+            "--geo2rdr-threshold",
+            type=float,
+
+            dest="geo2rdr_threshold",
+            help="Range convergence threshold for geo2rdr",
+        )
+
+    if geocode_cov_options or geo2rdr_num_iter:
+        geocode_cov_group.add_argument(
+            "--geo2rdr-num-iter",
+            "--geo2rdr-numiter",
+            type=float,
+
+            dest="geo2rdr_num_iter",
+            required=geo2rdr_num_iter == 2,
+            help="Maximum number of iterations for geo2rdr",
+        )
+
+    if epsg:
+        parser.add_argument(
+            "--epsg",
+            dest="epsg",
+            type=int,
+            required=epsg == 2,
+            help="EPSG code for output grids.",
+        )
+
+    if frequency:
+        parser.add_argument(
+            "--frequency",
+            dest="frequency",
+            default=None,
+            type=str,
+            required=frequency == 2,
+            help='Frequency band, either "A" or "B"',
+        )
+
+    if input_raster:
+        parser.add_argument(
+            "--input-raster",
+            dest="input_raster",
+            type=str,
+            required=input_raster == 2,
+            help="Input raster.",
+        )
+
+    if (rtc_options or
+            input_rtc or
+            terrain_correction_type or
+            rtc_upsampling or
+            rtc_min_value_db or
+            input_terrain_radiometry or
+            output_terrain_radiometry):
+
+        rtc_group = parser.add_argument_group(
+            plant.PARSER_GROUP_SEPARATOR +
+            'ISCE3 RTC arguments')
+
+    if rtc_options or input_rtc:
+        geocode_cov_group.add_argument(
+            "--input-rtc",
+            dest="input_rtc",
+            type=str,
+            required=input_rtc == 2,
+            help="Input RTC area factor.",
+        )
+
+    if rtc_options or terrain_correction_type:
+        rtc_group.add_argument(
+            "--terrain",
+            "--terrain-type",
+            "--rtc",
+            dest="terrain_correction_type",
+            type=str,
+            help="type of radiometric terrain correction: "
+            "'gamma-naught-david-small', "
+            "'gamma-naught-area-projection' "
+            "(default: %(default)s)",
+            required=terrain_correction_type == 2,
+            default="gamma-naught-area-projection",
+        )
+
+    if rtc_options or rtc_upsampling:
+        rtc_group.add_argument(
+            "--rtc-upsampling",
+            dest="rtc_upsampling",
+            type=float,
+            required=rtc_upsampling == 2,
+            help="RTC geogrid upsample factor.",
+        )
+
+    if rtc_options or rtc_min_value_db:
+        rtc_group.add_argument(
+            "--rtc-min-value-db",
+            dest="rtc_min_value_db",
+            default=-30,
+            type=float,
+            required=rtc_min_value_db == 2,
+            help=("RTC min. value in dB. -1 for disabled."
+                  " Default: -30 dB."),
+        )
+
+    if rtc_options or input_terrain_radiometry:
+        rtc_group.add_argument(
+            "--input-radiometry",
+            "--input-terrain-radiometry",
+            dest="input_terrain_radiometry",
+            type=str,
+            required=input_terrain_radiometry == 2,
+            help=("Input data radiometry. Options:"
+                  "beta0 or sigma0-ellipsoid"),
+        )
+
+    if rtc_options or output_terrain_radiometry:
+        rtc_group.add_argument(
+            "--output-radiometry",
+            "--output-terrain-radiometry",
+            dest="output_terrain_radiometry",
+            type=str,
+            required=output_terrain_radiometry == 2,
+            help=("Output data radiometry. Options:"
+                  "sigma-naught or gamma-naught"),
+        )
+
+    if native_doppler_grid:
+        parser.add_argument(
+            "--native-doppler-grid",
+            dest="native_doppler_grid",
+            default=False,
+            action="store_true",
+            required=native_doppler_grid == 2,
+            help=("Consider native Doppler grid (skewed"
+                  " geometry)"),
+        )
+
+    if orbit_files:
+        parser.add_argument(
+            "--orbit-file",
+            "--orbit-files",
+            dest="orbit_files",
+            nargs="+",
+            type=str,
+            required=orbit_files == 2,
+            help="Orbit file.",
+        )
+
+    if tec_files:
+        parser.add_argument(
+            "--tec",
+            "--tec-file",
+            "--tec-files",
+            dest="tec_files",
+            nargs="+",
+            type=str,
+            required=tec_files == 2,
+            help="Total electron content (TEC) file",
+        )
+
+
+def get_attribute(attribute_name, precedence_value, plant_script_obj):
+    if precedence_value is not None:
+        return precedence_value
+
+    return getattr(plant_script_obj, attribute_name, None)
+
+
+class PlantIsce3Sensor():
+
+    def __init__(self, plant_script_obj=None, input_file=None,
+                 orbit_files=None, tec_files=None, burst_ids=None,
+                 verbose=True):
+
+        self.verbose = verbose
+        self.plant_script_obj = plant_script_obj
+
+        self.input_file = None
+        if self.input_file is None:
+            self.input_file = plant_script_obj.input_file
+        if not self.input_file:
+            print(f'ERROR invalid input file: "{input_file}"')
+
+        self.orbit_files = get_attribute('orbit_files', orbit_files,
+                                         plant_script_obj)
+
+        self.tec_files = get_attribute('tec_files', tec_files,
+                                       plant_script_obj)
+
+        self.burst_ids = get_attribute('burst_ids', burst_ids,
+                                       plant_script_obj)
+
+        self.load_product()
+
+    def load_product(self):
+
+        if self.input_file.endswith('.h5'):
+            self.sensor_name = 'NISAR'
+            self.nisar_product_obj = open_product(
+                self.input_file)
+            self.nisar_frequency = self.get_frequency_str()
+            return
+
+        if self.input_file.endswith('.zip'):
+            self.sensor_name = 'Sentinel-1'
+            self.load_sentinel_1_bursts()
+            return
+
+        print(f'ERROR file not recognized: {self.input_file}')
+
+    def get_frequency_str(self):
+        if (self.sensor_name != 'NISAR'):
+            return
+
+        frequency_str = list(
+            self.nisar_product_obj.polarizations.keys())[0]
+
+        return frequency_str
+
+    def load_sentinel_1_bursts(self):
+        if (self.sensor_name == 'NISAR'):
+            print(f'ERROR cannot load bursts from a {self.sensor_name}'
+                  ' dataset')
+            return
+        from s1reader.s1_reader import load_bursts
+
+        orbit_file = self.get_orbit_file()
+
+        if self.verbose:
+            print('burst ID(s):', self.burst_ids)
+        if self.burst_ids is None:
+            subswath_number_list = [1, 2, 3]
+
+        else:
+            subswath_number_list = []
+            for burst_id in self.burst_ids:
+                iw_index = burst_id.upper().find('IW')
+                if iw_index < 0 and self.verbose:
+                    print(f'ERROR invalid burst ID: {burst_id}')
+                subswath_number = int(burst_id[iw_index + 2])
+                subswath_number_list.append(subswath_number)
+        if self.verbose:
+            print('IW subswath(s):', subswath_number_list)
+
+        self.burst_dict = {}
+
+        self.pol_list = []
+
+        for subswath_number in subswath_number_list:
+
+            for pol in ['VV', 'VH', 'HH', 'HV']:
+                burst_list_this_pol = None
+                try:
+                    burst_list_this_pol = load_bursts(
+                        self.input_file, orbit_file,
+                        subswath_number, pol, flag_apply_eap=False)
+                except ValueError:
+                    continue
+
+                if pol not in self.pol_list:
+                    self.pol_list.append(pol)
+
+                for burst in burst_list_this_pol:
+
+                    burst_id = str(burst.burst_id)
+
+                    if (self.burst_ids is not None and
+                            burst_id.lower() not in self.burst_ids):
+                        continue
+
+                    if burst_id not in self.burst_dict.keys():
+                        self.burst_dict[burst_id] = {}
+                    self.burst_dict[burst_id][pol] = burst
+
+        if len(self.burst_dict) == 0:
+            print(f'ERROR reading file {self.input_file} with orbit file(s)'
+                  f' {self.orbit_files}')
+
+        if self.verbose:
+            print('polarizations:', self.pol_list)
+            print('number of bursts:', len(self.burst_dict))
+
+    @property
+    def burst(self):
+        if len(self.burst_dict) == 1:
+
+            burst_id = list(self.burst_dict.keys())[0]
+            first_pol = list(self.burst_dict[burst_id])[0]
+            print('first pol:', first_pol)
+            return self.burst_dict[burst_id][first_pol]
+
+        print('ERROR the dataset contains multiple bursts:'
+              f' {self.burst_dict.keys()}. Please select a burst.')
+
+    def get_orbit(self):
+        if self.sensor_name == 'NISAR':
+
+            orbit_file = self.get_orbit_file()
+            if orbit_file is not None:
+                radar_grid = self.get_radar_grid()
+                orbit = load_orbit_from_xml(orbit_file,
+                                            radar_grid.ref_epoch())
+                return orbit
+
+            return self.nisar_product_obj.getOrbit()
+
+        if self.sensor_name == 'Sentinel-1':
+            return self.burst.orbit
+
+        print(f'ERROR sensor not supported: {self.sensor_name}')
+
+    def get_grid_doppler(self):
+        if self.sensor_name == 'NISAR':
+            return self.plant_script_obj.get_doppler_grid_lut_nisar(
+                self.nisar_product_obj)
+
+        if self.sensor_name == 'Sentinel-1':
+            return self.plant_script_obj.get_doppler_grid_lut_s1(
+                self.burst)
+
+        print(f'ERROR sensor not supported: {self.sensor_name}')
+
+    def get_doppler_centroid(self):
+        if self.sensor_name == 'NISAR':
+            return self.plant_script_obj.get_doppler_centroid_lut_nisar(
+                self.nisar_product_obj)
+
+        if self.sensor_name == 'Sentinel-1':
+            return self.plant_script_obj.get_doppler_centroid_lut_s1(
+                self.burst)
+
+        print(f'ERROR sensor not supported: {self.sensor_name}')
+
+    def get_radar_grid(self):
+        if self.sensor_name == 'NISAR':
+            return self.nisar_product_obj.getRadarGrid(
+                self.nisar_frequency)
+
+        if self.sensor_name == 'Sentinel-1':
+            return self.burst.as_isce3_radargrid()
+
+        print(f'ERROR sensor not supported: {self.sensor_name}')
+
+    def get_radar_grid_ml(self):
+        radar_grid = self.get_radar_grid()
+
+        radar_grid_ml = self.plant_script_obj.get_radar_grid_ml(radar_grid)
+
+        return radar_grid_ml
+
+    def get_tec_file(self):
+        if not self.tec_files:
+            return
+
+        all_tec_files = []
+        for tec_file_list in self.tec_files:
+            all_tec_files.extend(plant.glob(os.path.expanduser(tec_file_list)))
+
+        if len(all_tec_files) == 0:
+            print(f'ERROR invalid TEC file: {self.tec_files}')
+            return
+
+        if len(all_tec_files) == 1:
+            return self.tec_files[0]
+
+        if self.verbose:
+            print('A list of TEC files has been provided. Filtering'
+                  ' list by date.')
+
+        radar_grid = self.get_radar_grid()
+        radargrid_ref_epoch = datetime.datetime.fromisoformat(
+            radar_grid.ref_epoch.isoformat_usec())
+        sensing_start = radargrid_ref_epoch + datetime.timedelta(
+            seconds=radar_grid.sensing_start)
+        sensing_stop = radargrid_ref_epoch + datetime.timedelta(
+            seconds=radar_grid.sensing_stop)
+
+        for tec_file in all_tec_files:
+
+            with open(tec_file, 'r') as jin:
+                imagen_dict = json.load(jin)
+                num_utc = len(imagen_dict['utc'])
+                tec_start = datetime.datetime.fromisoformat(
+                    imagen_dict['utc'][0])
+                tec_end = datetime.datetime.fromisoformat(
+                    imagen_dict['utc'][-1])
+
+            tec_margin_start = (sensing_start - tec_start).total_seconds()
+            tec_margin_end = (tec_end - sensing_stop).total_seconds()
+
+            minimum_margin_sec = ((tec_end - tec_start).total_seconds() /
+                                  (num_utc - 1) / 2)
+
+            if (tec_margin_start < minimum_margin_sec or
+                    tec_margin_end < minimum_margin_sec) and self.verbose:
+                print('    TEC does not cover data:', tec_file,
+                      tec_margin_start, tec_margin_end)
+                continue
+
+            if self.verbose:
+                print(f'Selected TEC file: {tec_file}')
+
+            return tec_file
+
+        print('ERROR not TEC file intersects with the input product')
+
+    def get_orbit_file(self):
+        if not self.orbit_files:
+            return
+
+        all_orbit_files = []
+        for orbit_file_list in self.orbit_files:
+            all_orbit_files.extend(plant.glob(os.path.expanduser(
+                orbit_file_list)))
+
+        if len(all_orbit_files) == 0:
+            print(f'ERROR invalid orbit file: {self.orbit_files}')
+            return
+
+        if len(all_orbit_files) == 1:
+            return self.orbit_files[0]
+
+        if self.sensor_name == 'Sentinel-1':
+            print('ERROR A list of orbit files has been provided. The option'
+                  ' to filter the orbit files by date is only available'
+                  ' for NISAR files. Please, profile a single orbit file.')
+            return
+
+        if self.verbose:
+            print('A list of orbit files has been provided. Filtering'
+                  ' list by date.')
+
+        radar_grid = self.get_radar_grid()
+        radargrid_ref_epoch = datetime.datetime.fromisoformat(
+            radar_grid.ref_epoch.isoformat_usec())
+        sensing_start = radargrid_ref_epoch + datetime.timedelta(
+            seconds=radar_grid.sensing_start)
+        sensing_stop = radargrid_ref_epoch + datetime.timedelta(
+            seconds=radar_grid.sensing_stop)
+
+        for orbit_file in all_orbit_files:
+
+            orbit = load_orbit_from_xml(orbit_file, radar_grid.ref_epoch())
+
+            orbit_start = datetime.datetime.fromisoformat(
+                orbit.start_datetime.isoformat_usec())
+            orbit_end = datetime.datetime.fromisoformat(
+                orbit.end_datetime.isoformat_usec())
+
+            orbit_margin_start = (sensing_start - orbit_start).total_seconds()
+            orbit_margin_end = (orbit_end - sensing_stop).total_seconds()
+
+            if orbit_margin_start < 0 or orbit_margin_end < 0 and self.verbose:
+                print('    orbit does not cover data:', orbit_file,
+                      orbit_margin_start, orbit_margin_end)
+                continue
+
+            if self.verbose:
+                print(f'Selected orbit file: {orbit_file}')
+
+            return orbit_file
+
+        print('ERROR not orbit file intersects with the input product')
+
+    def get_sentinel_1_epsg(self):
+        if (self.sensor_name == 'NISAR'):
+            print(f'ERROR cannot load bursts from a {self.sensor_name}'
+                  ' dataset')
+            return
+        y_list = []
+        x_list = []
+
+        for burst_pol_dict in self.burst_dict.values():
+
+            first_pol = list(burst_pol_dict.keys())[0]
+            burst = burst_pol_dict[first_pol]
+            y_list.append(burst.center.y)
+            x_list.append(burst.center.x)
+        y_mean = np.nanmean(y_list)
+        x_mean = np.nanmean(x_list)
+        if self.verbose:
+            print(f'center position (Y, X): ({y_mean}, {x_mean})')
+        center_epsg = point2epsg(x_mean, y_mean)
+        if self.verbose:
+            print(f'center position EPSG: {center_epsg}')
+        assert 1024 <= center_epsg <= 32767
+
+        self.plant_script_obj.epsg = center_epsg
+
+        return center_epsg
+
+    def generate_geogrids(self):
+
+        plant_geogrid_obj = self.plant_script_obj.plant_geogrid_obj
+        width = plant_geogrid_obj.width
+        length = plant_geogrid_obj.length
+        xmin = plant_geogrid_obj.x0
+        xmax = plant_geogrid_obj.xf
+        ymax = plant_geogrid_obj.y0
+        ymin = plant_geogrid_obj.yf
+        x_spacing = plant_geogrid_obj.step_x
+        y_spacing = plant_geogrid_obj.step_y
+
+        xmin_all_bursts = np.inf
+        ymax_all_bursts = -np.inf
+        xmax_all_bursts = -np.inf
+        ymin_all_bursts = np.inf
+
+        epsg = self.get_sentinel_1_epsg()
+
+        geogrids_dict = {}
+        for burst_pol_dict in self.burst_dict.values():
+            first_pol = list(burst_pol_dict.keys())[0]
+            burst = burst_pol_dict[first_pol]
+            burst_id = str(burst.burst_id)
+
+            radar_grid = burst.as_isce3_radargrid()
+            orbit = burst.orbit
+
+            geogrid_burst = None
+
+            geogrid_burst = isce3.product.bbox_to_geogrid(
+                radar_grid, orbit, isce3.core.LUT2d(), x_spacing,
+                y_spacing, epsg)
+
+            geogrid_snapped = geogrid_burst
+
+            xmin_all_bursts = min([xmin_all_bursts, geogrid_snapped.start_x])
+            ymax_all_bursts = max([ymax_all_bursts, geogrid_snapped.start_y])
+            xmax_all_bursts = max([xmax_all_bursts,
+                                   geogrid_snapped.start_x +
+                                   geogrid_snapped.spacing_x *
+                                   geogrid_snapped.width])
+            ymin_all_bursts = min([ymin_all_bursts,
+                                   geogrid_snapped.start_y +
+                                   geogrid_snapped.spacing_y *
+                                   geogrid_snapped.length])
+
+            geogrids_dict[burst_id] = geogrid_snapped
+
+        if xmin is None:
+            xmin = xmin_all_bursts
+        if ymax is None:
+            ymax = ymax_all_bursts
+        if xmax is None:
+            xmax = xmax_all_bursts
+        if ymin is None:
+            ymin = ymin_all_bursts
+
+        width = _grid_size(xmax, xmin, x_spacing)
+        length = _grid_size(ymin, ymax, y_spacing)
+        geogrid_all = isce3.product.GeoGridParameters(
+            xmin, ymax, x_spacing, y_spacing,
+            width, length, epsg)
+
+        return geogrid_all, geogrids_dict
+
+
 class PlantIsce3Script(plant.PlantScript):
 
+    def __init__(self, *args, **kwargs):
+
+        try:
+            super().__init__(*args, plant_isce3=True, **kwargs)
+        except TypeError:
+            super().__init__(*args, **kwargs)
+
+    def load_product(self, verbose=True):
+
+        return PlantIsce3Sensor(plant_script_obj=self, verbose=verbose)
+
     def update_geogrid(self, radar_grid, dem_raster=None, geo=None,
-                       nisar_product_obj=None):
+                       nisar_product_obj=None, orbit=None):
 
         flag_update_geo = geo is not None
 
         if geo is None:
+            if nisar_product_obj is None:
+                nisar_product_obj = open_product(self.input_file)
+
+            if orbit is None:
+                orbit = nisar_product_obj.getOrbit()
+
             geo = isce3.geocode.GeocodeFloat32()
-            geo.orbit = nisar_product_obj.getOrbit()
+            geo.orbit = orbit
             geo.ellipsoid = isce3.core.Ellipsoid()
 
         width = self.plant_geogrid_obj.width
@@ -169,6 +1024,81 @@ class PlantIsce3Script(plant.PlantScript):
                                                          projection=projection)
                 self.plant_geogrid_obj.merge(rslc_geogrid_obj)
 
+    def update_geogrid_from_isce3_geogrid(self, isce3_geogrid, geo=None):
+
+        flag_update_geo = geo is not None
+
+        width = self.plant_geogrid_obj.width
+        length = self.plant_geogrid_obj.length
+        x0_orig = self.plant_geogrid_obj.x0
+        y0_orig = self.plant_geogrid_obj.y0
+        step_x = self.plant_geogrid_obj.step_x
+        step_y = self.plant_geogrid_obj.step_y
+
+        if width is None:
+            width = -9999
+        if length is None:
+            length = -9999
+
+        if x0_orig is None:
+            x0_orig = np.nan
+        if y0_orig is None:
+            y0_orig = np.nan
+
+        if self.epsg == 4326 and not plant.isvalid(step_x):
+            step_x = plant.m_to_deg_lon(30.)
+        elif step_x is None:
+            step_x = np.nan
+
+        if self.epsg == 4326 and not plant.isvalid(step_y):
+            step_y = - plant.m_to_deg_lat(30.)
+        elif step_y is None:
+            step_y = np.nan
+
+        print('*** x0:', x0_orig)
+        print('*** y0:', y0_orig)
+        print('*** step_x:', step_x)
+        print('*** step_y:', step_y)
+        print('*** length:', length)
+        print('*** width:', width)
+        projection = plant.epsg_to_wkt(isce3_geogrid.epsg)
+
+        plant_geogrid_from_geo_obj = plant.PlantGeogrid(
+            y0=isce3_geogrid.start_y,
+            length=isce3_geogrid.length,
+            x0=isce3_geogrid.start_x,
+            width=isce3_geogrid.width,
+            step_x=isce3_geogrid.spacing_x,
+            step_y=isce3_geogrid.spacing_y,
+            projection=projection)
+
+        print('*** x0 (from geo 2):', plant_geogrid_from_geo_obj.x0)
+        print('*** xf (from geo 2):', plant_geogrid_from_geo_obj.xf)
+        print('*** y0 (from geo 2):', plant_geogrid_from_geo_obj.y0)
+        print('*** yf (from geo 2):', plant_geogrid_from_geo_obj.yf)
+        print('*** step_x (from geo 2):', plant_geogrid_from_geo_obj.step_x)
+        print('*** step_y (from geo 2):', plant_geogrid_from_geo_obj.step_y)
+
+        self.plant_geogrid_obj.merge(plant_geogrid_from_geo_obj)
+
+        print('*** x0 (updated):', self.plant_geogrid_obj.x0)
+        print('*** xf (updated):', self.plant_geogrid_obj.xf)
+        print('*** y0 (updated):', self.plant_geogrid_obj.y0)
+        print('*** yf (updated):', self.plant_geogrid_obj.yf)
+        print('*** step_x (updated):',
+              self.plant_geogrid_obj.step_x)
+        print('*** step_y (updated):',
+              self.plant_geogrid_obj.step_y)
+
+        if flag_update_geo:
+            geo.geogrid(self.plant_geogrid_obj.x0,
+                        self.plant_geogrid_obj.y0,
+                        self.plant_geogrid_obj.step_x,
+                        self.plant_geogrid_obj.step_y,
+                        self.plant_geogrid_obj.width,
+                        self.plant_geogrid_obj.length,
+                        self.epsg)
+
     def proj_inverse(self, lat, lon, epsg):
         if epsg is None:
             return lat, lon
@@ -244,13 +1174,9 @@ class PlantIsce3Script(plant.PlantScript):
 
         return output_obj
 
-    def _get_input_raster_from_nisar_slc(self, input_raster,
-                                         frequency_str=None):
+    def _get_input_raster_from_nisar_slc(self, input_raster):
 
-        if frequency_str is None:
-            nisar_product_obj = open_product(self.input_file)
-            frequency_str = list(nisar_product_obj.polarizations.keys())[0]
-            del nisar_product_obj
+        frequency_str = self.get_frequency_str()
 
         if input_raster is not None:
             flag_apply_transformation = \
@@ -279,8 +1205,7 @@ class PlantIsce3Script(plant.PlantScript):
         ret_dict['image_obj'] = image_obj
         return ret_dict
 
-    def get_radar_grid(self, nisar_product_obj, frequency_str):
-        radar_grid = nisar_product_obj.getRadarGrid(frequency_str)
+    def get_radar_grid_ml(self, radar_grid):
 
         if self.select_row is not None or self.select_col is not None:
             self.plant_transform_obj.update_crop_window(
@@ -305,12 +1230,68 @@ class PlantIsce3Script(plant.PlantScript):
              and self.nlooks_az > 1) or
                 (getattr(self, 'nlooks_rg', None) is not None and
                  self.nlooks_rg > 1)):
-            radar_grid_ml = radar_grid.multilook(self.nlooks_az,
-                                                 self.nlooks_rg)
+
+            if getattr(self, 'nlooks_az', None):
+                nlooks_az = 1
+            else:
+                nlooks_az = self.nlooks_az
+            if getattr(self, 'nlooks_rg', None):
+                nlooks_rg = 1
+            else:
+                nlooks_rg = self.nlooks_rg
+
+            radar_grid_ml = radar_grid.multilook(nlooks_az,
+                                                 nlooks_rg)
         else:
             radar_grid_ml = radar_grid
 
         return radar_grid_ml
+
+    def get_mask_ctable(self, mask_array):
+        mask_ctable = gdal.ColorTable()
+
+        mask_ctable.SetColorEntry(0, (175, 175, 175))
+
+        mask_ctable.SetColorEntry(255, (0, 0, 0))
+
+        if not self.cmap:
+            self.cmap = 'viridis'
+
+        n_subswaths = np.max(mask_array[(mask_array != 255)])
+        print('number of subswaths:', n_subswaths)
+
+        for subswath in range(1, n_subswaths + 1):
+            color = plant.get_color_display(subswath + 1,
+                                            flag_decreasing=True,
+                                            n_colors=n_subswaths + 2,
+                                            cmap=self.cmap)
+            color_rgb = tuple([int(255 * x) for x in color[0:3]])
+            mask_ctable.SetColorEntry(subswath, color_rgb)
+        return mask_ctable
+
+    def get_layover_shadow_mask_ctable(self):
+        layover_shadow_mask_ctable = gdal.ColorTable()
+
+        layover_shadow_mask_ctable.SetColorEntry(0, (175, 175, 175))
+
+        layover_shadow_mask_ctable.SetColorEntry(1, (64, 64, 64))
+
+        layover_shadow_mask_ctable.SetColorEntry(2, (223, 223, 223))
+
+        layover_shadow_mask_ctable.SetColorEntry(3, (0, 255, 255))
+
+        layover_shadow_mask_ctable.SetColorEntry(11, (32, 32, 32))
+
+        layover_shadow_mask_ctable.SetColorEntry(13, (0, 128, 128))
+
+        layover_shadow_mask_ctable.SetColorEntry(22, (255, 255, 255))
+
+        layover_shadow_mask_ctable.SetColorEntry(23, (128, 255, 255))
+
+        layover_shadow_mask_ctable.SetColorEntry(33, (128, 128, 128))
+
+        layover_shadow_mask_ctable.SetColorEntry(255, (0, 0, 0))
+        return layover_shadow_mask_ctable
 
     def get_dem_interp_method(self):
         return self.get_interp_method(self.dem_interp_method)
@@ -337,29 +1318,97 @@ class PlantIsce3Script(plant.PlantScript):
 
         return interp_method_obj
 
-    def get_doppler_grid_lut(self, nisar_product_obj):
+    def get_doppler_grid_lut_nisar(self, nisar_product_obj):
 
         if self.native_doppler_grid:
-            print('*** native dop')
+            print('*** Grid: native dop')
             doppler = nisar_product_obj.getDopplerCentroid()
             doppler.bounds_error = False
         else:
 
-            print('*** zero dop')
+            print('*** Grid: zero dop')
             doppler = isce3.core.LUT2d()
         return doppler
 
-    def get_doppler_centroid_lut(self, nisar_product_obj):
+    def get_doppler_grid_lut_s1(self, burst):
+
+        if self.native_doppler_grid:
+            print('*** Grid: native dop (Sentinel-1)')
+            doppler = burst.doppler.lut2d
+            doppler.bounds_error = False
+        else:
+
+            print('*** Grid: zero dop (Sentinel-1)')
+            doppler = isce3.core.LUT2d()
+        return doppler
+
+    def get_doppler_centroid_lut_nisar(self, nisar_product_obj):
 
         if self.zero_doppler_centroid:
 
-            print('*** zero dop')
+            print('*** Doppler Centroid: zero dop (NISAR)')
             doppler_centroid_lut = isce3.core.LUT2d()
         else:
-            print('*** native dop')
+            print('*** Doppler Centroid: native dop (NISAR)')
             doppler_centroid_lut = nisar_product_obj.getDopplerCentroid()
             doppler_centroid_lut.bounds_error = False
         return doppler_centroid_lut
+
+    def get_doppler_centroid_lut_s1(self, burst):
+
+        if self.zero_doppler_centroid:
+
+            print('*** Doppler Centroid: native dop (Sentinel-1)')
+            doppler_centroid_lut = burst.doppler.lut2d
+            doppler_centroid_lut.bounds_error = False
+        else:
+
+            print('*** Doppler Centroid: zero dop (Sentinel-1)')
+            doppler_centroid_lut = isce3.core.LUT2d()
+        return doppler_centroid_lut
+
+
+def get_raster_from_data(data, scratch_path='.'):
+    temp_file = plant.get_temporary_file(ext='.bin', append=True)
+
+    length, width = data.shape
+
+    driver = gdal.GetDriverByName("ENVI")
+
+    dtype = gdal_array.NumericTypeCodeToGDALTypeCode(
+        data.dtype)
+
+    dset = driver.Create(temp_file, xsize=width, ysize=length,
+                         bands=1, eType=dtype)
+    raster_band = dset.GetRasterBand(1)
+    raster_band.WriteArray(data)
+
+    raster_band.FlushCache()
+    del raster_band
+    del dset
+    gc.collect()
+
+    temp_raster = isce3.io.Raster(temp_file)
+    return temp_raster
+
+
+def get_raster_from_lut(correction_lut, radar_grid):
+    data = correction_lut.data
+
+    correction_raster = get_raster_from_data(data)
+
+    radar_grid = isce3.product.RadarGridParameters(
+        correction_lut.y_start,
+        radar_grid.wavelength,
+        1.0 / correction_lut.y_spacing,
+        correction_lut.x_start,
+        correction_lut.x_spacing,
+        radar_grid.lookside,
+        correction_lut.length,
+        correction_lut.width,
+        radar_grid.ref_epoch)
+
+    return correction_raster, radar_grid
 
 
 def _get_output_dict_from_parser(parser, args, module_name):
@@ -454,9 +1503,9 @@ def point2epsg(lon, lat):
 
     if lon >= 180.0:
         lon = lon - 360.0
-    if lat >= 60.0:
+    if lat >= 70.0:
         return 3413
-    elif lat <= -60.0:
+    elif lat <= -70.0:
         return 3031
     elif lat > 0:
         return 32601 + int(np.round((lon + 177) / 6.0))
@@ -535,6 +1584,7 @@ def execute(command,
             start_time = time.time()
         try:
             ret = method_to_execute(argv)
+
         except SystemExit as e:
             if len(e.args) == 0 or e.args[0] != 0:
                 flag_error = True
@@ -561,8 +1611,9 @@ def execute(command,
         else:
             ret_str = ''
         if verbose:
-            print(f'PLAnT (API-completed) - {module_name}.py {arguments}'
+            print(f'PLAnT (API-completed) - {command_line}'
                   f'{ret_str}')
+        return ret
 
 
 class ModuleWrapper(object):
@@ -594,15 +1645,21 @@ class ModuleWrapper(object):
         flag_mute = kwargs.get('flag_mute', None)
         verbose = kwargs.get('verbose', None) and not (flag_mute is True)
         if self._ref is not None:
+
             ret = self._ref.execute(self._command, verbose=verbose)
         else:
+
             ret = execute(self._command, verbose=verbose)
+
         return ret
 
     def _set_command(self, *args, **kwargs):
-        args_str = self._update_args_str(
-            args, args_str='')
-        args_str = ' -i ' + args_str
+        if len(args) > 0:
+            args_str = self._update_args_str(
+                args, args_str='')
+            args_str = ' -i ' + args_str
+        else:
+            args_str = ''
 
         argparse_method = getattr(self._module_obj, 'get_parser')
         parser = argparse_method()

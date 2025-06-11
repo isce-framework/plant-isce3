@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 
 import os
+import shutil
+
 import numpy as np
 import plant
 import plant_isce3
 import datetime
 import h5py
 import isce3
-from osgeo import gdal
+
 from nisar.products.readers import open_product
+
+POL_LIST = ['HH', 'HV', 'VH', 'VV', 'RH', 'RV']
 
 
 def get_parser():
@@ -22,51 +26,97 @@ def get_parser():
                             default_options=1,
                             output_file=1)
 
-    parser.add_argument('--frequency',
-                        dest='frequency',
-                        type=str,
-                        help='Frequency band, either "A" or "B".')
+    plant_isce3.add_arguments(parser,
+                              frequency=1)
 
-    parser.add_argument('--data',
-                        '--images',
-                        dest='data_file',
-                        type=str,
-                        help=("File where the product's data layers will be"
-                              " stored."))
+    group = parser.add_mutually_exclusive_group()
 
-    parser.add_argument('--mask',
-                        '--mask-layer',
-                        '--save-mask',
-                        '--save-mask-layer',
-                        dest='mask_file',
-                        type=str,
-                        help=("File where the product's mask layer will be"
-                              " stored."))
+    group.add_argument('--cp-pol',
+                       '--copy-pol',
+                       dest='copy_pol',
+                       nargs=2,
+                       type=str,
+                       help=('Copy polarization. Provide source and'
+                             ' destination pols.'))
 
-    parser.add_argument('--runconfig',
-                        '--runconfig-file',
-                        dest='runconfig_file',
-                        type=str,
-                        help=("File where the runconfig used to generate the"
-                              " product will be stored."))
+    group.add_argument('--mv-pol',
+                       '--move-pol',
+                       '--rename-pol',
+                       dest='move_pol',
+                       nargs=2,
+                       type=str,
+                       help=('Rename polarization. Provide source and'
+                             ' destination pols.'))
 
-    parser.add_argument('--layover-shadow-mask',
-                        '--layover-shadow-mask-layer',
-                        '--save-layover-shadow-mask',
-                        '--save-layover-shadow-mask-layer',
-                        dest='layover_shadow_mask_file',
-                        type=str,
-                        help=("File where the product's mask layer will be"
-                              " stored."))
+    group.add_argument('--rm-pol',
+                       '--remove-pol',
+                       dest='remove_pol',
+                       type=str,
+                       help=('Remove polarization.'))
 
-    parser.add_argument('--orbit-kml',
-                        '--save-orbit-kml',
-                        dest='orbit_kml_file',
-                        type=str,
-                        help=("KML file where the product's orbit ephemeris"
-                              " will be stored."))
+    group.add_argument('--data',
+                       '--images',
+                       dest='data_file',
+                       action='store_true',
+
+                       help=("Extract product's imagery"))
+
+    group.add_argument('--mask',
+                       '--mask-layer',
+
+                       dest='mask_file',
+                       action='store_true',
+
+                       help=("Extract mask layer."))
+
+    group.add_argument('--runconfig',
+                       '--runconfig-file',
+                       dest='runconfig_file',
+                       action='store_true',
+
+                       help=("Extract the runconfig used to generate the"
+                             " product from its metadata."))
+
+    group.add_argument('--layover-shadow-mask',
+                       '--layover-shadow-mask-layer',
+
+                       dest='layover_shadow_mask_file',
+                       action='store_true',
+
+                       help=("Extract the layover/shadow mask from the"
+                             " product"))
+
+    group.add_argument('--orbit-kml',
+
+                       dest='orbit_kml_file',
+                       action='store_true',
+
+                       help=("Save a KML file containing the product's orbit"
+                             " ephemeris"))
 
     return parser
+
+
+def overwrite_dataset_check(element_name, force=None, element_str='file'):
+
+    if plant.plant_config.flag_all or force:
+        return True
+    if plant.plant_config.flag_never:
+        return False
+    while 1:
+        res = plant.get_keys(f'The {element_str} {element_name} already'
+                             ' exists. Would you like to overwrite'
+                             ' it? ([y]es/[n]o)/[A]ll/[N]one ')
+        if res == 'n':
+            return False
+        elif res == 'N':
+            plant.plant_config.flag_never = True
+            return False
+        elif res == 'y':
+            return True
+        elif res == 'A':
+            plant.plant_config.flag_all = True
+            return True
 
 
 class PlantIsce3Util(plant_isce3.PlantIsce3Script):
@@ -77,6 +127,30 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
     def run(self):
 
+        ret = self.overwrite_file_check(self.output_file)
+        if not ret:
+            self.print('Operation cancelled.', 1)
+            return
+
+        if (not self.input_file.endswith('.h5') and not
+                not self.input_file.endswith('.nc')):
+
+            image_obj = plant.read_image(self.input_file)
+
+            if self.mask_file:
+                self.save_mask(image_obj=image_obj)
+
+            elif self.layover_shadow_mask_file:
+                self.save_layover_shadow_mask(image_obj=image_obj)
+
+            elif self.data_file:
+                self.save_data(image_obj=image_obj)
+
+            else:
+                self.save_image(image_obj, self.output_file)
+
+            return self.read_image(self.output_file)
+
         nisar_product_obj = open_product(self.input_file)
 
         if self.frequency is None:
@@ -86,104 +160,110 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         if self.orbit_kml_file:
             self.save_orbit_kml(nisar_product_obj)
 
-        if self.mask_file:
+        elif self.mask_file:
             self.save_mask(nisar_product_obj)
 
-        if self.layover_shadow_mask_file:
+        elif self.layover_shadow_mask_file:
             self.save_layover_shadow_mask(nisar_product_obj)
 
-        if self.runconfig_file:
-            self.save_runconfig_file(nisar_product_obj)
-
-        if self.data_file:
+        elif self.data_file:
             self.save_data()
 
-    def save_data(self):
-        image_ref = f'NISAR:{self.input_file}:{self.frequency}'
+        elif self.runconfig_file:
+            self.save_runconfig_file(nisar_product_obj)
+            return
+
+        else:
+            if self.input_file != self.output_file:
+
+                input_file_obj = h5py.File(self.input_file, 'r')
+                input_file_obj.close()
+                shutil.copyfile(self.input_file, self.output_file)
+
+            if self.copy_pol:
+                with h5py.File(self.output_file, 'a') as root_ds:
+                    self.copy_pol_recursive(root_ds, key='/',
+                                            input_pol=self.copy_pol[0],
+                                            output_pol=self.copy_pol[1])
+                    print('done')
+
+            if self.remove_pol:
+                with h5py.File(self.output_file, 'a') as root_ds:
+                    self.remove_pol_recursive(root_ds, key='/',
+                                              pol=self.remove_pol)
+                    print('done')
+
+            if self.move_pol:
+                with h5py.File(self.output_file, 'a') as root_ds:
+                    self.copy_pol_recursive(root_ds, key='/',
+                                            input_pol=self.move_pol[0],
+                                            output_pol=self.move_pol[1])
+                    self.remove_pol_recursive(root_ds, key='/',
+                                              pol=self.move_pol[0])
+                    print('done')
+
+            print(f'# file saved: {self.output_file}')
+            plant.append_output_file(self.output_file)
+            return
+
+        return self.read_image(self.output_file)
+
+    def save_data(self, image_obj=None):
+        if image_obj is None:
+            image_ref = f'NISAR:{self.input_file}:{self.frequency}'
+
         image_obj = self.read_image(image_ref)
-        self.save_image(image_obj, output_file=self.data_file)
+        self.save_image(image_obj, output_file=self.output_file)
+        plant.append_output_file(self.output_file)
 
-    def save_mask(self, nisar_product_obj):
-        if nisar_product_obj.productType not in ['GSLC', 'GCOV']:
-            error_msg = (f'ERROR cannot save mask for product type'
-                         f' "{nisar_product_obj.productType}".'
-                         ' Not implemented.')
-            print(error_msg)
-            raise NotImplementedError(error_msg)
+    def save_mask(self, nisar_product_obj=None,
+                  image_obj=None):
 
-        grid_path = (f'{nisar_product_obj.GridPath}'
-                     f'/frequency{self.frequency}/mask')
-        image_ref = f'NETCDF:{self.input_file}:{grid_path}'
-        image_obj = self.read_image(image_ref)
+        if image_obj is None:
+            if nisar_product_obj.productType not in ['GSLC', 'GCOV']:
+                error_msg = (f'ERROR cannot save mask for product type'
+                             f' "{nisar_product_obj.productType}".'
+                             ' Not implemented.')
+                print(error_msg)
+                raise NotImplementedError(error_msg)
 
-        mask_ctable = gdal.ColorTable()
+            grid_path = (f'{nisar_product_obj.GridPath}'
+                         f'/frequency{self.frequency}/mask')
+            image_ref = f'NETCDF:{self.input_file}:{grid_path}'
 
-        mask_ctable.SetColorEntry(0, (175, 175, 175))
-
-        mask_ctable.SetColorEntry(255, (0, 0, 0))
-
-        if not self.cmap:
-            self.cmap = 'viridis'
+            image_obj = self.read_image(image_ref)
 
         mask_array = image_obj.image
-        n_subswaths = np.max(mask_array[(mask_array != 255)])
-        print('number of subswaths:', n_subswaths)
 
-        for subswath in range(1, n_subswaths + 1):
-            color = plant.get_color_display(subswath + 1,
-                                            flag_decreasing=True,
-                                            n_colors=n_subswaths + 2,
-                                            cmap=self.cmap)
-            color_rgb = tuple([int(255 * x) for x in color[0:3]])
-            mask_ctable.SetColorEntry(subswath, color_rgb)
+        mask_ctable = self.get_mask_ctable(mask_array)
 
-        self.save_image(image_obj, output_file=self.mask_file,
+        self.save_image(image_obj, output_file=self.output_file,
                         out_null=255, ctable=mask_ctable)
+        plant.append_output_file(self.output_file)
 
-    def save_layover_shadow_mask(self, nisar_product_obj):
-        if nisar_product_obj.productType not in ['GCOV']:
-            error_msg = (f'ERROR cannot save mask for product type'
-                         f' "{nisar_product_obj.productType}".'
-                         ' Not implemented.')
-            print(error_msg)
-            raise NotImplementedError(error_msg)
+    def save_layover_shadow_mask(self, nisar_product_obj=None,
+                                 image_obj=None):
 
-        grid_path = (f'{nisar_product_obj.GridPath}'
-                     f'/frequency{self.frequency}/layoverShadowMask')
-        image_ref = f'NETCDF:{self.input_file}:{grid_path}'
-        image_obj = self.read_image(image_ref)
+        if image_obj is None:
+            if nisar_product_obj.productType not in ['GCOV']:
+                error_msg = (f'ERROR cannot save mask for product type'
+                             f' "{nisar_product_obj.productType}".'
+                             ' Not implemented.')
+                print(error_msg)
+                raise NotImplementedError(error_msg)
 
-        layover_shadow_mask_ctable = gdal.ColorTable()
+            grid_path = (f'{nisar_product_obj.GridPath}'
+                         f'/frequency{self.frequency}/layoverShadowMask')
+            image_ref = f'NETCDF:{self.input_file}:{grid_path}'
+            image_obj = self.read_image(image_ref)
 
-        layover_shadow_mask_ctable.SetColorEntry(0, (175, 175, 175))
+        layover_shadow_mask_ctable = self.get_layover_shadow_mask_ctable()
 
-        layover_shadow_mask_ctable.SetColorEntry(1, (64, 64, 64))
-
-        layover_shadow_mask_ctable.SetColorEntry(2, (223, 223, 223))
-
-        layover_shadow_mask_ctable.SetColorEntry(3, (0, 255, 255))
-
-        layover_shadow_mask_ctable.SetColorEntry(11, (32, 32, 32))
-
-        layover_shadow_mask_ctable.SetColorEntry(13, (0, 128, 128))
-
-        layover_shadow_mask_ctable.SetColorEntry(22, (255, 255, 255))
-
-        layover_shadow_mask_ctable.SetColorEntry(23, (128, 255, 255))
-
-        layover_shadow_mask_ctable.SetColorEntry(33, (128, 128, 128))
-
-        layover_shadow_mask_ctable.SetColorEntry(255, (0, 0, 0))
-
-        self.save_image(image_obj, output_file=self.layover_shadow_mask_file,
+        self.save_image(image_obj, output_file=self.output_file,
                         out_null=255, ctable=layover_shadow_mask_ctable)
+        plant.append_output_file(self.output_file)
 
     def save_runconfig_file(self, nisar_product_obj):
-
-        ret = self.overwrite_file_check(self.runconfig_file)
-        if not ret:
-            self.print('Operation cancelled.', 1)
-            return
 
         h5_obj = h5py.File(self.input_file, 'r')
 
@@ -195,23 +275,19 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         h5_obj.close()
         runconfig_str = runconfig_str.replace("\\n", "\n") + '\n'
 
-        output_dir = os.path.dirname(self.runconfig_file)
+        output_dir = os.path.dirname(self.output_file)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
 
-        with open(self.runconfig_file, "w") as f:
+        with open(self.output_file, "w") as f:
 
             f.write(runconfig_str)
             f.close()
 
-        print(f'## file saved: {self.runconfig_file} (YAML)')
+        print(f'## file saved: {self.output_file} (YAML)')
+        plant.append_output_file(self.output_file)
 
     def save_orbit_kml(self, nisar_product_obj):
-
-        ret = self.overwrite_file_check(self.orbit_kml_file)
-        if not ret:
-            self.print('Operation cancelled.', 1)
-            return
 
         orbit = nisar_product_obj.getOrbit()
 
@@ -288,8 +364,9 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             fp.write('</Schema>\n')
             fp.write('</Document> \n')
             fp.write('</kml>\n')
-        if plant.isfile(self.orbit_kml_file) and self.verbose:
-            print('## file saved: %s (KML)' % self.orbit_kml_file)
+        if plant.isfile(self.output_file) and self.verbose:
+            print('## file saved: %s (KML)' % self.output_file)
+        plant.append_output_file(self.output_file)
 
     def add_polygon(self, fp, polygon):
         fp.write('<Placemark>\n')
@@ -400,6 +477,96 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         fp.write('</gx:Track>\n')
         fp.write('</Placemark> \n')
         fp.write('</Folder> \n')
+
+    def copy_pol_recursive(self, hdf_obj: h5py.Group, key: str, input_pol: str,
+                           output_pol: str):
+
+        h5_element = hdf_obj[key]
+
+        if key == input_pol:
+            input_path = f'{hdf_obj.name}/{input_pol}'
+            output_path = f'{hdf_obj.name}/{output_pol}'
+            if output_path in hdf_obj:
+
+                if isinstance(h5_element, h5py.Group):
+                    element_str = 'H5 group'
+                else:
+                    element_str = 'H5 dataset'
+
+                ret = overwrite_dataset_check(output_path, force=self.force,
+                                              element_str=element_str)
+
+                if ret is False:
+                    return
+
+                del hdf_obj[output_pol]
+
+            print(f'copying" "{input_path}"')
+            print(f'     to" "{output_path}"')
+            hdf_obj.copy(input_path, hdf_obj, output_path)
+            return
+
+        if isinstance(h5_element, h5py.Group):
+
+            for sub_key in h5_element.keys():
+                self.copy_pol_recursive(h5_element, sub_key, input_pol,
+                                        output_pol)
+
+        elif input_pol in POL_LIST and key == 'listOfPolarizations':
+            list_of_polarizations = h5_element[()]
+            print('input list_of_polarizations:', list_of_polarizations)
+            flag_input_pol_found = any([pol.decode() == input_pol
+                                        for pol in list_of_polarizations])
+
+            if not flag_input_pol_found:
+                print(f'WARNING input pol {input_pol} not found in the list'
+                      f'of polarization at: "{h5_element.name}"')
+                return
+            flag_output_pol_found = any([pol.decode() == output_pol
+                                        for pol in list_of_polarizations])
+
+            if flag_output_pol_found:
+                print(f'WARNING output pol {output_pol} already exists in list'
+                      f'of polarization at: "{h5_element.name}"')
+                return
+            list_of_polarizations = np.sort(np.append(list_of_polarizations,
+                                            np.bytes_(output_pol)))
+            print('output list_of_polarizations:', list_of_polarizations)
+            del hdf_obj[key]
+            hdf_obj.create_dataset(key, data=list_of_polarizations)
+
+    def remove_pol_recursive(self, hdf_obj: h5py.Group, key: str, pol: str):
+
+        h5_element = hdf_obj[key]
+
+        if key == pol:
+            path = f'{hdf_obj.name}/{pol}'
+            del hdf_obj[path]
+            return
+
+        if isinstance(h5_element, h5py.Group):
+
+            for sub_key in h5_element.keys():
+                self.remove_pol_recursive(h5_element, sub_key, pol)
+
+        elif pol in POL_LIST and key == 'listOfPolarizations':
+            list_of_polarizations = h5_element[()]
+            list_of_polarizations_decoded = \
+                [p.decode() for p in list_of_polarizations]
+
+            print('input list_of_polarizations:',
+                  list_of_polarizations_decoded)
+
+            if pol not in list_of_polarizations_decoded:
+                print('*** flag_pol_found. Skipping.')
+                return
+
+            list_of_polarizations_decoded.remove(pol)
+            print('output list_of_polarizations:',
+                  list_of_polarizations_decoded)
+            del hdf_obj[key]
+            hdf_obj.create_dataset(
+                key, data=np.bytes_(list_of_polarizations_decoded))
 
 
 def get_datetime_from_isoformat(ref_epoch):

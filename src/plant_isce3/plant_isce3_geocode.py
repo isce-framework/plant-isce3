@@ -6,7 +6,7 @@ import plant_isce3
 from osgeo import gdal
 import numpy as np
 import isce3
-from nisar.products.readers import SLC, open_product
+from nisar.products.readers import SLC
 from isce3.atmosphere.tec_product import (tec_lut2d_from_json_srg,
                                           tec_lut2d_from_json_az)
 
@@ -26,10 +26,16 @@ def get_parser():
                             multilook=1,
                             output_file=2)
 
-    parser.add_argument('--input-raster',
-                        dest='input_raster',
-                        type=str,
-                        help='Input raster.')
+    plant_isce3.add_arguments(parser,
+                              abs_cal_factor=1,
+                              burst_ids=1,
+                              geocode_cov_options=1,
+                              epsg=1,
+                              input_raster=1,
+                              rtc_options=1,
+                              native_doppler_grid=1,
+                              orbit_files=1,
+                              tec_files=1)
 
     parser_transform_input_raster = parser.add_mutually_exclusive_group()
     parser_transform_input_raster.add_argument(
@@ -48,41 +54,12 @@ def get_parser():
         help='Prevent PLAnT from applying requested transformations'
         ' (e.g. crop, absolute, phase) to input raster')
 
-    parser.add_argument('--exponent',
-                        dest='exponent',
-                        type=int,
-                        help='Exponent for geocoding.')
-
-    parser.add_argument('--input-rtc',
-                        dest='input_rtc',
-                        type=str,
-                        help='Input RTC area factor.')
-
-    parser.add_argument('--epsg',
-                        dest='epsg',
-
-                        type=int,
-                        help='EPSG code for output grids.')
-
-    parser.add_argument('--tec',
-                        '--tec-file',
-                        dest='tec_file',
-                        type=str,
-                        help='Total electron content (TEC) file.')
-
     parser.add_argument('--cov',
                         '--cov-matrix',
                         '--covariance-matrix',
                         dest='covariance_matrix',
                         type=str,
                         help='Output covariance matrix [C] directory.')
-
-    parser.add_argument('--abs-cal-factor',
-                        '--abs-calibration-factor',
-                        '--calibration-factor',
-                        dest='abs_cal_factor',
-                        type=float,
-                        help='Absolute calibration factor')
 
     parser.add_argument('--symmetrize',
                         action='store_true',
@@ -170,165 +147,6 @@ def get_parser():
                                     help='Use area mode and apply radiometric'
                                     ' terrain correction')
 
-    parser.add_argument('--dem-interp-method',
-                        dest='dem_interp_method',
-                        type=str,
-                        default='biquintic',
-                        help='DEM interpolation method. Options:'
-                        ' sinc, bilinear, bicubic, nearest, biquintic')
-
-    parser.add_argument('--data-interp-method',
-                        dest='data_interp_method',
-                        type=str,
-                        default='sinc',
-                        help='Data interpolation method. Options:'
-                        ' sinc, bilinear, bicubic, nearest, biquintic')
-
-    parser.add_argument('--terrain', '--terrain-type',
-                        '--rtc',
-                        dest='terrain_correction_type',
-                        type=str,
-                        help="type of radiometric terrain correction: "
-
-                        "'gamma-naught-david-small', "
-
-                        "'gamma-naught-area-projection' "
-
-                        "(default: %(default)s)",
-                        default='gamma-naught-area-projection')
-
-    parser.add_argument('--native-doppler-grid',
-                        dest='native_doppler_grid',
-                        default=False,
-                        action='store_true',
-                        help='Consider native Doppler grid (skewed geometry)')
-
-    parser.add_argument('--double-radar-grid-sampling',
-                        '--upsample-radar-grid',
-                        dest='flag_upsample_radar_grid',
-                        default=None,
-                        action='store_true',
-                        help='Double radar grid sampling.')
-
-    parser.add_argument('--out-off-diag-terms',
-                        '--out-off-diagonal-terms',
-                        dest='out_off_diag_terms',
-                        type=str,
-                        help='Output off-diagonal terms.')
-
-    parser.add_argument('--upsampling',
-                        dest='geogrid_upsampling',
-                        type=float,
-                        help='Geogrid upsample factor.')
-
-    parser.add_argument('--rtc-upsampling',
-                        dest='rtc_upsampling',
-                        type=float,
-                        help='RTC geogrid upsample factor.')
-
-    parser.add_argument('--rtc-min-value-db',
-                        dest='rtc_min_value_db',
-                        default=-30,
-                        type=float,
-                        help='RTC min. value in dB. -1 for disabled.'
-                        ' Default: -30 dB.')
-
-    parser.add_argument('--input-radiometry',
-                        '--input-terrain-radiometry',
-                        dest='input_terrain_radiometry',
-                        type=str,
-                        help='Input data radiometry. Options:'
-                        'beta0 or sigma0-ellipsoid')
-
-    parser.add_argument('--output-radiometry',
-                        '--output-terrain-radiometry',
-                        dest='output_terrain_radiometry',
-                        type=str,
-                        help='Output data radiometry. Options:'
-                        'sigma-naught or gamma-naught')
-
-    parser.add_argument('--out-geo-rdr',
-                        dest='out_geo_rdr',
-                        type=str,
-                        help='Output geo rdr file')
-
-    parser.add_argument('--out-geo-dem',
-                        dest='out_geo_dem',
-                        type=str,
-                        help='Output interpolated DEM file')
-
-    parser.add_argument('--out-geo-nlooks',
-                        dest='out_geo_nlooks',
-                        type=str,
-                        help='Output geo nlooks file')
-
-    parser.add_argument('--out-geo-rtc',
-                        dest='out_geo_rtc',
-                        type=str,
-                        help='Output geo RTC file')
-
-    parser.add_argument('--out-geo-rtc-gamma-to-sigma',
-                        '--out-geo-rtc-anf-gamma-to-sigma',
-                        '--out-geo-rtc-gamma0-to-sigma0',
-                        dest='out_geo_rtc_gamma0_to_sigma0',
-                        type=str,
-                        help='Output geo RTC ANF to sigma0 file')
-
-    parser.add_argument('--out-rtc',
-                        '--output-rtc',
-                        dest='output_rtc',
-                        type=str,
-                        help='Output RTC ANF file (in slant-range)')
-
-    parser.add_argument('--memory-mode',
-                        dest='memory_mode',
-                        type=str,
-                        choices=['auto',
-                                 'single-block',
-                                 'blocks-geogrid',
-                                 'blocks-geogrid-and-radargrid'],
-                        help='Memory mode')
-
-    parser.add_argument('--min-block-size',
-                        type=int,
-                        dest='min_block_size',
-                        help='Minimum block size in Bytes')
-
-    parser.add_argument('--max-block-size',
-                        type=int,
-                        dest='max_block_size',
-                        help='Maximum block size in Bytes')
-
-    parser.add_argument('--clip-min',
-                        type=float,
-                        dest='clip_min',
-                        help='Clip (limit) min output values')
-
-    parser.add_argument('--clip-max',
-                        type=float,
-                        dest='clip_max',
-                        help='Clip (limit) max output values')
-
-    parser.add_argument('--nlooks-min',
-                        '--min-nlooks',
-                        type=float,
-                        dest='min_nlooks',
-                        help='Minimum number of looks. Geogrid data'
-                        ' below this limit will be set to NaN.')
-
-    parser.add_argument('--geo2rdr-threshold',
-                        type=float,
-
-                        dest='geo2rdr_threshold',
-                        help='Range convergence threshold for geo2rdr')
-
-    parser.add_argument('--geo2rdr-num-iter',
-                        '--geo2rdr-numiter',
-                        type=float,
-
-                        dest='geo2rdr_num_iter',
-                        help='Maximum number of iterations for geo2rdr')
-
     return parser
 
 
@@ -359,25 +177,28 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
             self.print('Operation cancelled.', 1)
             return
 
-        slc_obj = SLC(hdf5file=self.input_file)
-        frequency_str = list(slc_obj.polarizations.keys())[0]
+        plant_product_obj = self.load_product()
+        radar_grid = plant_product_obj.get_radar_grid_ml()
+        orbit = plant_product_obj.get_orbit()
+        doppler = plant_product_obj.get_grid_doppler()
 
-        ret_dict = self._get_input_raster_from_nisar_slc(
-            self.input_raster, frequency_str)
-        input_raster = ret_dict['input_raster']
+        self.tec_file = plant_product_obj.get_tec_file()
+
+        if (plant_product_obj.sensor_name == 'Sentinel-1'):
+
+            for burst in plant_product_obj.burst_list:
+                temp_vrt = plant.get_temporary_file(ext='vrt')
+                burst.slc_to_vrt_file(temp_vrt)
+                input_raster = temp_vrt
+                break
+
+        else:
+            ret_dict = self._get_input_raster_from_nisar_slc(
+                self.input_raster, plant_product_obj)
+            input_raster = ret_dict['input_raster']
         input_raster_obj = isce3.io.Raster(input_raster)
         print('*** input_raster_obj.nbands:', input_raster_obj.num_bands)
         ellipsoid = isce3.core.Ellipsoid()
-
-        if self.nlooks_az is None:
-            self.nlooks_az = 1
-        if self.nlooks_rg is None:
-            self.nlooks_rg = 1
-
-        orbit = slc_obj.getOrbit()
-        doppler = self.get_doppler_grid_lut(slc_obj)
-
-        radar_grid = self.get_radar_grid(slc_obj, frequency_str)
 
         input_dtype = input_raster_obj.datatype()
         if input_dtype == gdal.GDT_Float32:
@@ -449,7 +270,6 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         geo.numiter_geo2rdr = self.geo2rdr_num_iter
 
         dem_interp_method = self.get_dem_interp_method()
-        data_interp_method = self.get_data_interp_method()
 
         self.print(f'*** exponent: {self.exponent}')
         self.print(f'*** input_dtype: {input_dtype}')
@@ -538,8 +358,13 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         if self.min_nlooks:
             kwargs['min_nlooks'] = self.min_nlooks
 
+        frequency_str = None
+
         if self.tec_file:
 
+            frequency_str = plant_product_obj.get_frequency_str()
+
+            slc_obj = SLC(hdf5file=self.input_file)
             center_freq = slc_obj.getSwathMetadata(
                 frequency_str).processed_center_frequency
 
@@ -618,7 +443,13 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         if self.rtc_min_value_db is not None and self.rtc_min_value_db != -1:
             kwargs['rtc_min_value_db'] = self.rtc_min_value_db
 
-        kwargs['radargrid_nlooks'] = self.nlooks_az * self.nlooks_rg
+        if self.nlooks_az is not None or self.nlooks_rg is not None:
+            if self.nlooks_az is not None:
+                self.nlooks_az = 1
+            if self.nlooks_rg is not None:
+                self.nlooks_rg = 1
+
+            kwargs['radargrid_nlooks'] = self.nlooks_az * self.nlooks_rg
 
         if self.abs_cal_factor is not None:
             kwargs['abs_cal_factor'] = self.abs_cal_factor
@@ -686,7 +517,9 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
             length=geo_raster_rdr_dem_length,
             nbands=1)
 
-        geo.data_interpolator = data_interp_method
+        if not self.data_interp_method:
+            self.data_interp_method = 'sinc'
+        geo.data_interpolator = self.data_interp_method
 
         print('*** geocode kwargs:', kwargs)
         geo.geocode(
@@ -769,6 +602,10 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         return ret_dict
 
     def _generate_cov_matrix(self, frequency_str):
+
+        if frequency_str is None:
+            frequency_str = plant_product_obj.get_frequency_str()
+
         image_obj = plant.read_image(self.output_file)
         nbands = image_obj.nbands
         width = image_obj.width
@@ -952,7 +789,6 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
                     symmetrized_band = symmetrized_hv_obj.band
                     image_obj.set_band(symmetrized_band, band=output_band)
 
-                    symmetrized_band_out = image_obj.get_band(band=output_band)
                     output_band += 1
                     print('*** skipping HV')
                     print('*** reading symmetrized HV')
@@ -966,7 +802,9 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
             self.save_image(image_obj, temp_file, force=True,
                             output_format=output_format)
 
-    def _get_input_raster_from_nisar_slc(self, input_raster, frequency_str):
+    def _get_input_raster_from_nisar_slc(self, input_raster,
+                                         plant_product_obj):
+
         if input_raster is not None:
             if self.flag_transform_input_raster is not False:
                 flag_apply_transformation = \
@@ -1021,6 +859,8 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
                 input_raster = temp_file
 
         else:
+
+            frequency_str = plant_product_obj.get_frequency_str()
             if self.flag_symmetrize:
                 freq_group = ('//science/LSAR/RSLC/swaths/'
                               f'frequency{frequency_str}')

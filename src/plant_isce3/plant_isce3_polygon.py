@@ -7,7 +7,7 @@ import numpy as np
 from osgeo import gdal
 import random
 import isce3
-from nisar.products.readers import SLC
+from nisar.products.readers import SLC, open_product
 
 
 def get_parser():
@@ -22,17 +22,10 @@ def get_parser():
                             multilook=1,
                             output_file=1)
 
-    parser.add_argument('--input-raster',
-                        dest='input_raster',
-                        type=str,
-                        help='Input raster.')
-
-    parser.add_argument('--abs-cal-factor',
-                        '--abs-calibration-factor',
-                        '--calibration-factor',
-                        dest='abs_cal_factor',
-                        type=float,
-                        help='Absolute calibration factor')
+    plant_isce3.add_arguments(parser,
+                              abs_cal_factor=1,
+                              input_raster=1,
+                              native_doppler_grid=1)
 
     parser.add_argument('--exponent',
                         dest='exponent',
@@ -76,12 +69,6 @@ def get_parser():
                                     help='Use area mode and apply radiometric'
                                     ' terrain correction')
 
-    parser.add_argument('--native-doppler-grid',
-                        dest='native_doppler_grid',
-                        default=False,
-                        action='store_true',
-                        help='Consider native Doppler grid (skewed geometry)')
-
     parser.add_argument('--upsampling',
                         dest='geogrid_upsampling',
                         type=float,
@@ -105,11 +92,6 @@ def get_parser():
                         type=str,
                         help='Output data radiometry. Options:'
                         'sigma-naught or gamma-naught')
-
-    parser.add_argument('--in-geo-edges',
-                        dest='in_geo_edges',
-                        type=str,
-                        help='Input geo edges file')
 
     parser.add_argument('--out-nlooks',
                         dest='out_nlooks',
@@ -137,26 +119,17 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
             self.print('Operation cancelled.', 1)
             return
 
-        nisar_product_obj = open_product(self.input_file)
-        frequency_str = list(nisar_product_obj.polarizations.keys())[0]
-
         ret_dict = self._get_input_raster_from_nisar_slc(
             self.input_raster)
         input_raster = ret_dict['input_raster']
         input_raster_obj = isce3.io.Raster(input_raster)
 
-        if self.nlooks_az is None:
-            self.nlooks_az = 1
-        if self.nlooks_rg is None:
-            self.nlooks_rg = 1
+        ret_dict = self.load_product()
+        radar_grid_ml = ret_dict['radar_grid_ml']
+        orbit = ret_dict['orbit']
+        doppler = ret_dict['grid_doppler']
 
-        slc_obj = SLC(hdf5file=self.input_file)
-        orbit = slc_obj.getOrbit()
         ellipsoid = isce3.core.Ellipsoid()
-        doppler = self.get_doppler_grid_lut(slc_obj)
-
-        radar_grid_ml = self.get_radar_grid(slc_obj,
-                                            frequency_str)
 
         if input_raster_obj.datatype() == 6:
             GeocodePolygon = isce3.geocode.GeocodePolygonFloat32
