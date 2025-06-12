@@ -159,6 +159,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
         if self.orbit_kml_file:
             self.save_orbit_kml(nisar_product_obj)
+            return self.output_file
 
         elif self.mask_file:
             self.save_mask(nisar_product_obj)
@@ -171,7 +172,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
         elif self.runconfig_file:
             self.save_runconfig_file(nisar_product_obj)
-            return
+            return self.output_file
 
         else:
             if self.input_file != self.output_file:
@@ -204,7 +205,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
             print(f'# file saved: {self.output_file}')
             plant.append_output_file(self.output_file)
-            return
+            return self.output_file
 
         return self.read_image(self.output_file)
 
@@ -323,11 +324,11 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             llh_list.append(ellipsoid.xyz_to_lon_lat(pos))
             time_list.append(time_str)
 
-        output_dir = os.path.dirname(self.orbit_kml_file)
+        output_dir = os.path.dirname(self.output_file)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
 
-        with open(self.orbit_kml_file, 'w') as fp:
+        with open(self.output_file, 'w') as fp:
 
             fp.write('<?xml version="1.0" encoding="UTF-8"?> \n')
             fp.write('<kml xmlns="http://www.opengis.net/kml/2.2" ')
