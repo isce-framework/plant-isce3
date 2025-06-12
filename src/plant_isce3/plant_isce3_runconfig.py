@@ -112,7 +112,7 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
 
         self._get_epsg_from_h5_file(self.input_file)
 
-        dem_raster = isce3.io.Raster(self.dem_file)
+        dem_raster = plant_isce3.get_isce3_raster(self.dem_file)
 
         self.update_geogrid(radar_grid, dem_raster, geo=geo)
 

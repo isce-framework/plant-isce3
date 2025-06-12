@@ -122,7 +122,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
         ret_dict = self._get_input_raster_from_nisar_slc(
             self.input_raster)
         input_raster = ret_dict['input_raster']
-        input_raster_obj = isce3.io.Raster(input_raster)
+        input_raster_obj = plant_isce3.get_isce3_raster(input_raster)
 
         ret_dict = self.load_product()
         radar_grid_ml = ret_dict['radar_grid_ml']
@@ -142,7 +142,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
         else:
             raise NotImplementedError('Unsupported raster type for geocoding')
 
-        dem_raster = isce3.io.Raster(self.dem_file)
+        dem_raster = plant_isce3.get_isce3_raster(self.dem_file)
         if dem_raster.get_epsg() == 0 or dem_raster.get_epsg() < -9000:
             print(f'WARNING invalid DEM EPSG: {dem_raster.get_epsg()}')
             print('Updating DEM EPSG to 4326...')
@@ -267,7 +267,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                     suffix=f'polygon_{i + 1}_temp_{random.random()}',
                     append=True)
                 plant.append_temporary_file(temp_file)
-                out_polygon_raster_obj = isce3.io.Raster(
+                out_polygon_raster_obj = plant_isce3.get_isce3_raster(
                     temp_file,
                     nbands,
                     1,
@@ -286,7 +286,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
                             suffix=f'polygon_{i + 1}_temp_{random.random()}',
                             append=True)
                         plant.append_temporary_file(temp_off_diag_file)
-                        out_off_diag_terms_obj = isce3.io.Raster(
+                        out_off_diag_terms_obj = plant_isce3.get_isce3_raster(
                             temp_off_diag_file,
                             nbands_off_diag_terms,
                             1,
@@ -320,7 +320,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
 
                 if self.save_radargrid_data:
                     radargrid_data_filename = f'polygon_{i + 1}_data.bin'
-                    output_radargrid_data_obj = isce3.io.Raster(
+                    output_radargrid_data_obj = plant_isce3.get_isce3_raster(
                         radargrid_data_filename,
                         width,
                         length,
@@ -332,7 +332,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
 
                 if self.save_rtc:
                     rtc_filename = f'polygon_{i + 1}_rtc.bin'
-                    output_rtc_obj = isce3.io.Raster(
+                    output_rtc_obj = plant_isce3.get_isce3_raster(
                         rtc_filename,
                         width,
                         length,
@@ -344,7 +344,7 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
 
                 if self.save_weights:
                     weights_filename = f'polygon_{i + 1}_weights.bin'
-                    output_weights_obj = isce3.io.Raster(
+                    output_weights_obj = plant_isce3.get_isce3_raster(
                         weights_filename,
                         width,
                         length,

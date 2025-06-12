@@ -196,7 +196,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
             ret_dict = self._get_input_raster_from_nisar_slc(
                 self.input_raster, plant_product_obj)
             input_raster = ret_dict['input_raster']
-        input_raster_obj = isce3.io.Raster(input_raster)
+        input_raster_obj = plant_isce3.get_isce3_raster(input_raster)
         print('*** input_raster_obj.nbands:', input_raster_obj.num_bands)
         ellipsoid = isce3.core.Ellipsoid()
 
@@ -217,7 +217,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         geo.orbit = orbit
         geo.ellipsoid = ellipsoid
 
-        dem_raster = isce3.io.Raster(self.dem_file)
+        dem_raster = plant_isce3.get_isce3_raster(self.dem_file)
         if self.epsg is None:
             if dem_raster.get_epsg() == 0 or dem_raster.get_epsg() < -9000:
                 dem_raster.set_epsg(4326)
@@ -291,7 +291,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
 
         self.output_format = plant.get_output_format(self.output_file)
 
-        output_raster_obj = isce3.io.Raster(
+        output_raster_obj = plant_isce3.get_isce3_raster(
             self.output_file,
             self.plant_geogrid_obj.width,
             self.plant_geogrid_obj.length,
@@ -474,7 +474,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
 
         if self.input_rtc:
             print(f'input RTC: {self.input_rtc}')
-            input_rtc_obj = isce3.io.Raster(self.input_rtc)
+            input_rtc_obj = plant_isce3.get_isce3_raster(self.input_rtc)
         else:
             input_rtc_obj = None
 
@@ -589,22 +589,20 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
             expected_output_format = plant.get_output_format(output_file)
             image_obj = plant.read_image(output_file)
             actual_output_format = image_obj.file_format
-            if expected_output_format != actual_output_format:
-                plant.util(output_file, output_file=output_file,
-                           output_format=expected_output_format,
-                           force=True)
-                if actual_output_format != 'ENVI':
-                    continue
-                envi_header = plant.get_envi_header(output_file)
-                if os.path.isfile(envi_header):
-                    os.remove(envi_header)
+            if expected_output_format == actual_output_format:
+                continue
+            plant.util(output_file, output_file=output_file,
+                       output_format=expected_output_format,
+                       force=True)
+            if actual_output_format != 'ENVI':
+                continue
+            envi_header = plant.get_envi_header(output_file)
+            if os.path.isfile(envi_header):
+                os.remove(envi_header)
 
-        return ret_dict
+        return self.output_file
 
     def _generate_cov_matrix(self, frequency_str):
-
-        if frequency_str is None:
-            frequency_str = plant_product_obj.get_frequency_str()
 
         image_obj = plant.read_image(self.output_file)
         nbands = image_obj.nbands
@@ -750,8 +748,8 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
 
     def _symmetrize_cross_pols(self, hv_ref, vh_ref):
         print(f'Symmetrizing: {hv_ref} and {vh_ref}')
-        hv_raster_obj = isce3.io.Raster(hv_ref)
-        vh_raster_obj = isce3.io.Raster(vh_ref)
+        hv_raster_obj = plant_isce3.get_isce3_raster(hv_ref)
+        vh_raster_obj = plant_isce3.get_isce3_raster(vh_ref)
         width = hv_raster_obj.width
         length = hv_raster_obj.length
         gdal_dtype = hv_raster_obj.datatype()

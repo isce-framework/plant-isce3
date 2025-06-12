@@ -454,6 +454,13 @@ def add_arguments(parser,
         )
 
 
+def get_isce3_raster(raster_file, *args, **kwargs):
+    expanded_filename = plant.get_filename(raster_file)
+    if expanded_filename is None:
+        return isce3.io.Raster(raster_file, *args, **kwargs)
+    return isce3.io.Raster(expanded_filename, *args, **kwargs)
+
+
 def get_attribute(attribute_name, precedence_value, plant_script_obj):
     if precedence_value is not None:
         return precedence_value
@@ -1164,7 +1171,7 @@ class PlantIsce3Script(plant.PlantScript):
             print(f'output format: {output_format}')
             print(f'GDAL data type: {gdal_dtype}')
 
-        output_obj = isce3.io.Raster(
+        output_obj = plant_isce3.get_isce3_raster(
             filename,
             int(width),
             int(length),
@@ -1388,7 +1395,7 @@ def get_raster_from_data(data, scratch_path='.'):
     del dset
     gc.collect()
 
-    temp_raster = isce3.io.Raster(temp_file)
+    temp_raster = plant_isce3.get_isce3_raster(temp_file)
     return temp_raster
 
 
