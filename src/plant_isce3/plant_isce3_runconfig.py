@@ -42,14 +42,6 @@ def get_parser():
                         action='store_true',
                         help='Use default runconfig.')
 
-    parser.add_argument('--standard',
-                        '--nisar', '--standard-product',
-                        '--nisar-standard',
-                        dest='flag_standard_product',
-                        default=False,
-                        action='store_true',
-                        help='Generate standard NISAR product.')
-
     parser.add_argument('--sas-output-file',
                         '--sas-of',
                         dest='sas_output_file',
@@ -60,6 +52,29 @@ def get_parser():
                         action='store_true',
                         dest='flag_gslc',
                         help='Generated geocoded SLC runconfig')
+
+    parser.add_argument(
+        '--rtc-min-value-db',
+        dest='rtc_min_value_db',
+        default=-30,
+        type=float,
+        help=(
+            'Minimum RTC area normalization factor (AFN) in'
+            ' dB. "nan" to disable it (default: %(default)s)'))
+
+    parser.add_argument('--mantissa-nbits',
+                        '--mantissa-n-bits',
+                        '--mantissa-number-bits',
+                        '--mantissa-number-of-bits',
+                        dest='mantissa_nbits',
+                        default=16,
+                        type=int,
+                        help=('Number of bits retained in the mantissa'
+                              ' of the floating point representation of each'
+                              ' component real and imaginary (if applicable)'
+                              ' of each output sample.'
+                              ' Any negative number disables the mantissa bits'
+                              ' truncation (default: %(default)s)'))
 
     parser.add_argument('--snap-x',
                         dest='snap_x',
@@ -360,16 +375,22 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
         print('        primary_executable:', **kwargs)
         print(f'            product_type: {workflow_name_upper}', **kwargs)
 
-        if workflow_name_upper == 'GCOV' and self.flag_standard_product:
+        if (workflow_name_upper == 'GCOV' and
+                self.mantissa_nbits is not None and
+                self.mantissa_nbits >= 0):
             print('        output:', **kwargs)
             print('            output_gcov_terms:', **kwargs)
-            print('                mantissa_nbits: 16', **kwargs)
+            print(f'                mantissa_nbits: {self.mantissa_nbits}',
+                  **kwargs)
 
         print('        processing:', **kwargs)
 
-        if workflow_name_upper == 'GCOV' and self.flag_standard_product:
+        if (workflow_name_upper == 'GCOV' and
+                self.rtc_min_value_db is not None and
+                plant.isvalid(self.rtc_min_value_db)):
             print('            rtc:', **kwargs)
-            print('                rtc_min_value_db: -30', **kwargs)
+            print(f'                rtc_min_value_db: {self.rtc_min_value_db}',
+                  **kwargs)
 
         print('            geocode:', **kwargs)
 

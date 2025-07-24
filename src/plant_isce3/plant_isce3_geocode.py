@@ -186,11 +186,9 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
 
         if (plant_product_obj.sensor_name == 'Sentinel-1'):
 
-            for burst in plant_product_obj.burst_list:
-                temp_vrt = plant.get_temporary_file(ext='vrt')
-                burst.slc_to_vrt_file(temp_vrt)
-                input_raster = temp_vrt
-                break
+            input_raster = plant_product_obj.get_sentinel_1_input_raster(
+                self.input_raster,
+                flag_transform_input_raster=self.flag_transform_input_raster)
 
         else:
             ret_dict = self._get_input_raster_from_nisar_slc(

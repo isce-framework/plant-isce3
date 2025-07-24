@@ -354,7 +354,7 @@ def add_arguments(parser,
             'ISCE3 RTC arguments')
 
     if rtc_options or input_rtc:
-        geocode_cov_group.add_argument(
+        rtc_group.add_argument(
             "--input-rtc",
             dest="input_rtc",
             type=str,
@@ -432,6 +432,7 @@ def add_arguments(parser,
 
     if orbit_files:
         parser.add_argument(
+            "--orbit",
             "--orbit-file",
             "--orbit-files",
             dest="orbit_files",
@@ -452,6 +453,44 @@ def add_arguments(parser,
             required=tec_files == 2,
             help="Total electron content (TEC) file",
         )
+
+
+def apply_slc_corrections(burst_in,
+
+                          flag_output_complex: bool = False,
+                          flag_thermal_correction: bool = True,
+                          flag_apply_abs_rad_correction: bool = True):
+
+    temp_vrt = plant.get_temporary_file(ext='vrt')
+    burst_in.slc_to_vrt_file(temp_vrt)
+    slc_gdal_ds = gdal.Open(temp_vrt)
+    arr_slc_from = slc_gdal_ds.ReadAsArray()
+
+    if flag_thermal_correction:
+        print('applying thermal noise correction to burst SLC')
+        corrected_image = (np.abs(arr_slc_from) ** 2 -
+                           burst_in.thermal_noise_lut)
+
+        min_backscatter = 0.000001
+        max_backscatter = None
+        corrected_image = np.clip(corrected_image, min_backscatter,
+                                  max_backscatter)
+
+    else:
+        corrected_image = np.abs(arr_slc_from) ** 2
+
+    if flag_apply_abs_rad_correction:
+        print('applying absolute radiometric correction to burst'
+              ' SLC')
+        corrected_image = \
+            corrected_image / burst_in.burst_calibration.beta_naught ** 2
+
+    if flag_output_complex:
+        factor_mag = np.sqrt(corrected_image) / np.abs(arr_slc_from)
+        factor_mag[np.isnan(factor_mag)] = 0.0
+        corrected_image = arr_slc_from * factor_mag
+
+    return corrected_image
 
 
 def get_isce3_raster(raster_file, *args, **kwargs):
@@ -584,15 +623,66 @@ class PlantIsce3Sensor():
 
     @property
     def burst(self):
-        if len(self.burst_dict) == 1:
+        if len(self.burst_dict) != 1:
+            print('ERROR the dataset contains multiple bursts:'
+                  f' {self.burst_dict.keys()}. Please select a burst.')
+            return
 
-            burst_id = list(self.burst_dict.keys())[0]
-            first_pol = list(self.burst_dict[burst_id])[0]
-            print('first pol:', first_pol)
-            return self.burst_dict[burst_id][first_pol]
+        burst_id = list(self.burst_dict.keys())[0]
+        first_pol = list(self.burst_dict[burst_id])[0]
 
-        print('ERROR the dataset contains multiple bursts:'
-              f' {self.burst_dict.keys()}. Please select a burst.')
+        return self.burst_dict[burst_id][first_pol]
+
+    def get_sentinel_1_input_raster(self, input_raster=None,
+                                    flag_transform_input_raster=None):
+
+        if input_raster is not None:
+            if flag_transform_input_raster is not False:
+                flag_apply_transformation = \
+                    self.plant_script_obj.plant_transform_obj.flag_apply_transformation()
+                image_obj = self.plant_script_obj.read_image(input_raster)
+            else:
+                flag_apply_transformation = False
+                image_obj = plant.read_image(input_raster)
+            if flag_apply_transformation:
+                temp_file = plant.get_temporary_file(append=True,
+                                                     ext='vrt')
+
+                for b in range(image_obj.nbands):
+                    band = image_obj.get_band(band=b)
+                    image_obj.set_band(band, band=b)
+                print(f'*** creating temporary file: {temp_file}')
+                self.plant_script_obj.save_image(image_obj, temp_file,
+                                                 force=True,
+                                                 output_format='VRT')
+                input_raster = temp_file
+            return input_raster
+
+        if len(self.burst_dict) != 1:
+            print('ERROR the dataset contains multiple bursts:'
+                  f' {self.burst_dict.keys()}. Please select a burst.')
+            return
+
+        pol_array_list = []
+        for burst_pol_dict in self.burst_dict.values():
+
+            pol_list = list(burst_pol_dict.keys())
+            burst = burst_pol_dict[pol_list[0]]
+
+            corrected_image = plant_isce3.apply_slc_corrections(
+                burst,
+
+                flag_output_complex=False,
+                flag_thermal_correction=True,
+                flag_apply_abs_rad_correction=True)
+
+            pol_array_list.append(corrected_image)
+
+        temp_all_pol_vrt = plant.get_temporary_file(ext='tif')
+        plant.save_image(pol_array_list, output_file=temp_all_pol_vrt,
+                         force=True)
+        plant.append_temporary_file(temp_all_pol_vrt)
+        return temp_all_pol_vrt
 
     def get_orbit(self):
         if self.sensor_name == 'NISAR':
@@ -1181,9 +1271,8 @@ class PlantIsce3Script(plant.PlantScript):
 
         return output_obj
 
-    def _get_input_raster_from_nisar_slc(self, input_raster):
-
-        frequency_str = self.get_frequency_str()
+    def _get_input_raster_from_nisar_slc(self, input_raster,
+                                         plant_product_obj=None):
 
         if input_raster is not None:
             flag_apply_transformation = \
@@ -1198,6 +1287,8 @@ class PlantIsce3Script(plant.PlantScript):
                                 output_format='VRT')
                 input_raster = temp_file
         else:
+
+            frequency_str = plant_product_obj.get_frequency_str()
             raster_file = f'NISAR:{self.input_file}:{frequency_str}'
             temp_file = plant.get_temporary_file(append=True,
                                                  ext='vrt')
