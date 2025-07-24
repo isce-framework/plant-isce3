@@ -132,7 +132,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             self.print('Operation cancelled.', 1)
             return
 
-        if (not self.input_file.endswith('.h5') and not
+        if (not self.input_file.endswith('.h5') and
                 not self.input_file.endswith('.nc')):
 
             image_obj = plant.read_image(self.input_file)
