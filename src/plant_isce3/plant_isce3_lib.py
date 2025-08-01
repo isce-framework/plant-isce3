@@ -4,7 +4,6 @@ import time
 import datetime
 import json
 import gc
-import tempfile
 
 import plant_isce3
 import importlib
@@ -459,7 +458,8 @@ def apply_slc_corrections(burst_in,
 
                           flag_output_complex: bool = False,
                           flag_thermal_correction: bool = True,
-                          flag_apply_abs_rad_correction: bool = True):
+                          flag_apply_abs_rad_correction: bool = True,
+                          clip_min=0):
 
     temp_vrt = plant.get_temporary_file(ext='vrt')
     burst_in.slc_to_vrt_file(temp_vrt)
@@ -471,7 +471,7 @@ def apply_slc_corrections(burst_in,
         corrected_image = (np.abs(arr_slc_from) ** 2 -
                            burst_in.thermal_noise_lut)
 
-        min_backscatter = 0.000001
+        min_backscatter = clip_min
         max_backscatter = None
         corrected_image = np.clip(corrected_image, min_backscatter,
                                   max_backscatter)
@@ -634,7 +634,11 @@ class PlantIsce3Sensor():
         return self.burst_dict[burst_id][first_pol]
 
     def get_sentinel_1_input_raster(self, input_raster=None,
-                                    flag_transform_input_raster=None):
+                                    flag_transform_input_raster=None,
+                                    flag_output_complex=False,
+                                    flag_thermal_correction=True,
+                                    flag_apply_abs_rad_correction=True,
+                                    clip_min=0):
 
         if input_raster is not None:
             if flag_transform_input_raster is not False:
@@ -672,9 +676,10 @@ class PlantIsce3Sensor():
             corrected_image = plant_isce3.apply_slc_corrections(
                 burst,
 
-                flag_output_complex=False,
-                flag_thermal_correction=True,
-                flag_apply_abs_rad_correction=True)
+                flag_output_complex=flag_output_complex,
+                flag_thermal_correction=flag_thermal_correction,
+                flag_apply_abs_rad_correction=flag_apply_abs_rad_correction,
+                clip_min=clip_min)
 
             pol_array_list.append(corrected_image)
 
@@ -1595,6 +1600,97 @@ def _get_output_dict_from_parser(parser, args, module_name):
     output_dict['flag_new_mem_output'] = flag_new_mem_output
 
     return output_dict
+
+
+def compute_correction_lut(burst_in, dem_raster,
+                           rg_step_meters,
+                           az_step_meters,
+                           apply_bistatic_delay_correction,
+                           apply_static_tropospheric_delay_correction):
+
+    rg_lut = None
+    az_lut = None
+
+    if (not apply_bistatic_delay_correction and
+            not apply_static_tropospheric_delay_correction):
+        return rg_lut, az_lut
+
+    numrow_orbit = burst_in.orbit.position.shape[0]
+    vel_mid = burst_in.orbit.velocity[numrow_orbit // 2, :]
+    spd_mid = np.linalg.norm(vel_mid)
+    pos_mid = burst_in.orbit.position[numrow_orbit // 2, :]
+    alt_mid = np.linalg.norm(pos_mid)
+
+    r = 6371000.0
+
+    az_step_sec = (az_step_meters * alt_mid) / (spd_mid * r)
+
+    bistatic_delay = burst_in.bistatic_delay(range_step=rg_step_meters,
+                                             az_step=az_step_sec)
+
+    if apply_bistatic_delay_correction:
+        az_lut = isce3.core.LUT2d(bistatic_delay.x_start,
+                                  bistatic_delay.y_start,
+                                  bistatic_delay.x_spacing,
+                                  bistatic_delay.y_spacing,
+                                  -bistatic_delay.data)
+
+    if not apply_static_tropospheric_delay_correction:
+        return rg_lut, az_lut
+
+    epsg = dem_raster.get_epsg()
+    proj = isce3.core.make_projection(epsg)
+    ellipsoid = proj.ellipsoid
+
+    rdr_grid = burst_in.as_isce3_radargrid(az_step=az_step_sec,
+                                           rg_step=rg_step_meters)
+
+    grid_doppler = isce3.core.LUT2d()
+
+    rdr2geo_obj = isce3.geometry.Rdr2Geo(rdr_grid, burst_in.orbit,
+                                         ellipsoid, grid_doppler,
+                                         threshold=1.0e-8)
+
+    height_file = plant.get_temporary_file(ext='tif')
+    incidence_angle_file = plant.get_temporary_file(ext='tif')
+
+    topo_output = {height_file: gdal.GDT_Float32,
+                   incidence_angle_file: gdal.GDT_Float32}
+
+    raster_list = []
+    for fname, dtype in topo_output.items():
+        topo_output_raster = isce3.io.Raster(fname,
+                                             rdr_grid.width, rdr_grid.length,
+                                             1, dtype, 'ENVI')
+        raster_list.append(topo_output_raster)
+
+    height_raster, incidence_raster = raster_list
+
+    rdr2geo_obj.topo(dem_raster, x_raster=None, y_raster=None,
+                     height_raster=height_raster,
+                     incidence_angle_raster=incidence_raster)
+
+    height_raster.close_dataset()
+    incidence_raster.close_dataset()
+
+    height_arr =\
+        gdal.Open(height_file, gdal.GA_ReadOnly).ReadAsArray()
+    incidence_angle_arr =\
+        gdal.Open(incidence_angle_file, gdal.GA_ReadOnly).ReadAsArray()
+
+    zenith_path_delay = 2.3
+    reference_height = 6000.0
+    tropo = (zenith_path_delay
+             / np.cos(np.deg2rad(incidence_angle_arr))
+             * np.exp(-1 * height_arr / reference_height))
+
+    rg_lut = isce3.core.LUT2d(bistatic_delay.x_start,
+                              bistatic_delay.y_start,
+                              bistatic_delay.x_spacing,
+                              bistatic_delay.y_spacing,
+                              tropo)
+
+    return rg_lut, az_lut
 
 
 def point2epsg(lon, lat):
