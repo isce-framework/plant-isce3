@@ -22,14 +22,17 @@ def get_parser():
     parser = plant.argparse(epilog=epilog,
                             description=descr,
                             input_file=1,
+                            dem_file=1,
                             cmap=1,
                             default_options=1,
                             output_file=1)
 
     plant_isce3.add_arguments(parser,
+                              burst_ids=1,
+                              orbit_files=1,
                               frequency=1)
 
-    group = parser.add_mutually_exclusive_group()
+    group = parser.add_mutually_exclusive_group(required=True)
 
     group.add_argument('--cp-pol',
                        '--copy-pol',
@@ -94,6 +97,54 @@ def get_parser():
                        help=("Save a KML file containing the product's orbit"
                              " ephemeris"))
 
+    group.add_argument('--slant-range',
+                       '--slant-range-file',
+                       dest='slant_range_file',
+                       action='store_true',
+                       help=("Save file containing slant-range indexes."
+                             " Only available for slant-range products"
+                             " (level 1)"))
+
+    group.add_argument('--azimuth-time',
+                       '--azimuth-time-file',
+                       dest='azimuth_time_file',
+                       action='store_true',
+                       help=("Save file containing azimuth times."
+                             " Only available for slant-range products"
+                             " (level 1)"))
+
+    parser.add_argument('--no-bistatic-delay-correction',
+                        dest='apply_bistatic_delay_correction',
+                        default=True,
+                        action='store_false',
+                        help=("Prevent the bistatic delay to be applied"))
+
+    parser.add_argument('--no-tropospheric-delay-correction',
+                        dest='apply_static_tropospheric_delay_correction',
+                        default=True,
+                        action='store_false',
+                        help=(""))
+
+    parser.add_argument('--beta0',
+                        dest='flag_output_complex',
+                        default=True,
+                        action='store_false',
+                        help=("Prevent the static tropospheric delay to be"
+                              " applied"))
+
+    parser.add_argument(
+        '--no-thermal-correction',
+        dest='flag_thermal_correction',
+        default=True,
+        action='store_false',
+        help=("Prevent thermal noise correction to be applied"))
+
+    parser.add_argument('--no-abs-rad-correction',
+                        dest='flag_apply_abs_rad_correction',
+                        default=True,
+                        action='store_false',
+                        help=(""))
+
     return parser
 
 
@@ -133,35 +184,63 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             return
 
         if (not self.input_file.endswith('.h5') and
-                not self.input_file.endswith('.nc')):
+                not self.input_file.endswith('.nc') and
+                not self.input_file.endswith('.SAFE') and
+                not self.input_file.endswith('.zip')):
 
-            image_obj = plant.read_image(self.input_file)
+            self.run_raster_as_input()
+            plant.append_output_file(self.output_file)
+            return self.output_file
 
-            if self.mask_file:
-                self.save_mask(image_obj=image_obj)
+        plant_product_obj = self.load_product()
+        if self.orbit_kml_file:
+            self.save_orbit_kml(plant_product_obj)
 
-            elif self.layover_shadow_mask_file:
-                self.save_layover_shadow_mask(image_obj=image_obj)
+        elif self.slant_range_file:
+            self.save_slant_range_file(plant_product_obj)
 
-            elif self.data_file:
-                self.save_data(image_obj=image_obj)
+        elif self.azimuth_time_file:
+            self.save_azimuth_time_file(plant_product_obj)
 
-            else:
-                self.save_image(image_obj, self.output_file)
+        elif (plant_product_obj.sensor_name == 'Sentinel-1'):
+            self.run_sentinel_1_as_input(plant_product_obj)
 
-            return self.read_image(self.output_file)
+        else:
+            self.run_nisar_as_input()
 
+        plant.append_output_file(self.output_file)
+        return self.output_file
+
+    def run_sentinel_1_as_input(self, plant_product_obj):
+
+        flag_output_complex = self.flag_output_complex
+        flag_thermal_correction = self.flag_thermal_correction
+        flag_apply_abs_rad_correction = self.flag_apply_abs_rad_correction
+
+        input_raster = plant_product_obj.get_sentinel_1_input_raster(
+            flag_output_complex=flag_output_complex,
+            flag_thermal_correction=flag_thermal_correction,
+            flag_apply_abs_rad_correction=flag_apply_abs_rad_correction)
+
+        image_obj = plant.read_image(input_raster)
+
+        if self.mask_file:
+            raise NotImplementedError
+        elif self.layover_shadow_mask_file:
+            raise NotImplementedError
+        elif self.runconfig_file:
+            raise NotImplementedError
+
+        self.save_data(image_obj=image_obj)
+
+    def run_nisar_as_input(self):
         nisar_product_obj = open_product(self.input_file)
 
         if self.frequency is None:
             freq_pol_dict = nisar_product_obj.polarizations
             self.frequency = list(freq_pol_dict.keys())[0]
 
-        if self.orbit_kml_file:
-            self.save_orbit_kml(nisar_product_obj)
-            return self.output_file
-
-        elif self.mask_file:
+        if self.mask_file:
             self.save_mask(nisar_product_obj)
 
         elif self.layover_shadow_mask_file:
@@ -172,7 +251,6 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
         elif self.runconfig_file:
             self.save_runconfig_file(nisar_product_obj)
-            return self.output_file
 
         else:
             if self.input_file != self.output_file:
@@ -204,17 +282,119 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                     print('done')
 
             print(f'# file saved: {self.output_file}')
-            plant.append_output_file(self.output_file)
-            return self.output_file
 
-        return self.read_image(self.output_file)
+    def run_raster_as_input(self):
+        image_obj = plant.read_image(self.input_file)
+
+        if self.mask_file:
+            self.save_mask(image_obj=image_obj)
+
+        elif self.layover_shadow_mask_file:
+            self.save_layover_shadow_mask(image_obj=image_obj)
+
+        elif self.data_file:
+            self.save_data(image_obj=image_obj)
+
+        else:
+            self.save_image(image_obj, self.output_file)
+
+    def get_az_rg_timing_correction_luts(self, plant_product_obj, radar_grid):
+        rg_step_meters = 10 * radar_grid.range_pixel_spacing
+        az_step_meters = rg_step_meters
+        apply_bistatic_delay_correction = \
+            self.apply_bistatic_delay_correction
+        apply_static_tropospheric_delay_correction = \
+            self.apply_static_tropospheric_delay_correction
+
+        dem_raster = plant_isce3.get_isce3_raster(self.dem_file)
+
+        rg_lut, az_lut = plant_isce3.compute_correction_lut(
+            plant_product_obj.burst,
+            dem_raster,
+
+            rg_step_meters,
+            az_step_meters,
+            apply_bistatic_delay_correction,
+            apply_static_tropospheric_delay_correction)
+
+        return rg_lut, az_lut
+
+    def save_slant_range_file(self, plant_product_obj):
+
+        radar_grid = plant_product_obj.get_radar_grid()
+        new_var_array = np.repeat(
+            [radar_grid.slant_ranges], radar_grid.length, axis=0)
+
+        if plant_product_obj.sensor_name == 'Sentinel-1':
+            rg_lut, _ = self.get_az_rg_timing_correction_luts(
+                plant_product_obj, radar_grid)
+        else:
+            rg_lut = None
+
+        if rg_lut is not None:
+            rg_lut.bounds_error = False
+
+            for i in range(radar_grid.length):
+                range_shift = \
+                    rg_lut.eval(radar_grid.sensing_times[i],
+                                radar_grid.slant_ranges)
+
+                new_var_array[i, :] = new_var_array[i, :] + range_shift
+
+        plant_image_obj = plant.PlantImage(new_var_array)
+        plant_image_obj.set_name('Slant-range Distance in Meters')
+        self.save_image(plant_image_obj, output_file=self.output_file)
+        plant.append_output_file(self.output_file)
+
+    def save_azimuth_time_file(self, plant_product_obj):
+        radar_grid = plant_product_obj.get_radar_grid()
+        new_var_array = np.repeat(np.transpose(
+            [radar_grid.sensing_times]),
+            radar_grid.width, axis=1)
+
+        if plant_product_obj.sensor_name == 'Sentinel-1':
+            _, az_lut = self.get_az_rg_timing_correction_luts(
+                plant_product_obj, radar_grid)
+        else:
+            az_lut = None
+
+        if az_lut is not None:
+            az_lut.bounds_error = False
+
+            for i in range(radar_grid.length):
+                for j in range(radar_grid.width):
+                    azimuth_delay = \
+                        az_lut.eval(radar_grid.sensing_times[i],
+                                    radar_grid.slant_ranges[j])
+
+                    new_var_array[i, j] = new_var_array[i, j] + azimuth_delay
+
+        plant_image_obj = plant.PlantImage(new_var_array)
+
+        ref_epoch = str(radar_grid.ref_epoch)
+        plant_image_obj.set_name(f'Azimuth Time in Seconds Since {ref_epoch}')
+        plant_image_obj.set_metadata(f'REF_EPOCH: {ref_epoch}[s]')
+
+        self.save_image(plant_image_obj, output_file=self.output_file)
+        plant.append_output_file(self.output_file)
 
     def save_data(self, image_obj=None):
         if image_obj is None:
             image_ref = f'NISAR:{self.input_file}:{self.frequency}'
+            image_obj = self.read_image(image_ref)
 
-        image_obj = self.read_image(image_ref)
-        self.save_image(image_obj, output_file=self.output_file)
+        if ('complex' not in plant.get_dtype_name(image_obj.dtype).lower() or
+                self.flag_output_complex is not False):
+            self.save_image(image_obj, output_file=self.output_file)
+            plant.append_output_file(self.output_file)
+            return
+
+        image_list = []
+        for b in range(image_obj.nbands):
+            image_list.append(
+                np.absolute(image_obj.get_image(band=b)) ** 2)
+
+        self.save_image(image_list, output_file=self.output_file)
         plant.append_output_file(self.output_file)
 
     def save_mask(self, nisar_product_obj=None,
@@ -288,25 +468,31 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         print(f'## file saved: {self.output_file} (YAML)')
         plant.append_output_file(self.output_file)
 
-    def save_orbit_kml(self, nisar_product_obj):
+    def save_orbit_kml(self, plant_product_obj):
 
-        orbit = nisar_product_obj.getOrbit()
+        orbit = plant_product_obj.get_orbit()
+        flag_has_polygon = False
 
-        h5_obj = h5py.File(self.input_file, 'r')
-        polygon_dataset = '//science/LSAR/identification/boundingPolygon'
-        polygon_str = str(h5_obj[polygon_dataset][()].decode('utf-8'))
-        h5_obj.close()
-        polygon_str = polygon_str.replace('POLYGON', '')
-        polygon_str_ref = ''
-        while polygon_str_ref != polygon_str:
-            polygon_str_ref = polygon_str
-            polygon_str = polygon_str.replace('(', '')
-        polygon_str_ref = ''
-        while polygon_str_ref != polygon_str:
-            polygon_str_ref = polygon_str
-            polygon_str = polygon_str.replace(')', '')
-        polygon = polygon_str.split(',')
-        polygon = [p.strip().split(' ') for p in polygon]
+        if plant_product_obj.sensor_name == 'NISAR':
+
+            h5_obj = h5py.File(self.input_file, 'r')
+
+            flag_has_polygon = True
+            polygon_dataset = '//science/LSAR/identification/boundingPolygon'
+            polygon_str = str(h5_obj[polygon_dataset][()].decode('utf-8'))
+            h5_obj.close()
+            polygon_str = polygon_str.replace('POLYGON', '')
+            polygon_str_ref = ''
+            while polygon_str_ref != polygon_str:
+                polygon_str_ref = polygon_str
+                polygon_str = polygon_str.replace('(', '')
+            polygon_str_ref = ''
+            while polygon_str_ref != polygon_str:
+                polygon_str_ref = polygon_str
+                polygon_str = polygon_str.replace(')', '')
+            polygon = polygon_str.split(',')
+            polygon = [p.strip().split(' ') for p in polygon]
+
         ellipsoid = isce3.core.Ellipsoid()
         time_list = []
         llh_list = []
@@ -316,7 +502,8 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         reference_epoch = orbit.reference_epoch
 
         with plant.PlantIndent():
-            print('polygon: ', polygon)
+            if flag_has_polygon:
+                print('polygon: ', polygon)
             print('reference epoch:', reference_epoch)
 
         for pos, time in zip(state_vectors_pos, state_vectors_time):
@@ -335,7 +522,8 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             fp.write('xmlns:gx="http://www.google.com/kml/ext/2.2"> \n')
             fp.write('<Document> \n')
 
-            self.add_polygon(fp, polygon)
+            if flag_has_polygon:
+                self.add_polygon(fp, polygon)
 
             self.add_line(fp, state_vectors_pos, state_vectors_vel, time_list,
                           llh_list,
