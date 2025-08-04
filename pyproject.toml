@@ -40,6 +40,7 @@ plant_isce3_resample = "plant_isce3.plant_isce3_resample:main"
 plant_isce3_runconfig = "plant_isce3.plant_isce3_runconfig:main"
 
 [tool.setuptools.dynamic]
+version = {attr = "plant_isce3.__version__"}
 dependencies = { file = ["requirements.txt"] }
 
 # extra requirements: `pip install plant_isce3[docs]` or `pip install .[docs]`
