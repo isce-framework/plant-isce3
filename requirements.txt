@@ -1,4 +1,5 @@
-numpy>=1.23
+gdal
+numpy>=2.0.0
 ruamel_yaml>=0.15
 argparse
 libnetcdf
