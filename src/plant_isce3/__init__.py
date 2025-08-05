@@ -1,13 +1,10 @@
 import sys
-# import plant
-
 from plant_isce3.plant_isce3_lib import *
 import plant_isce3.plant_isce3_lib
-# import print_test
 
-__version__ = version = VERSION = '0.0.9'
+__version__ = "0.0.9"
 
-# import plant_isce3.plant_isce3_info
+version = VERSION = __version__
 
 
 class Singleton(type):
