@@ -23,7 +23,7 @@ license = { file = "LICENSE" }
 # see section: setuptools_scm
 # https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html#dynamic-metadata
 # dependencies will be read from text files
-dynamic = ["dependencies", "optional-dependencies"]
+dynamic = ["version", dependencies", "optional-dependencies"]
 
 [project.urls]
 Homepage = "https://github.com/isce-framework/plant-isce3"
