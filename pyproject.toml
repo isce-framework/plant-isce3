@@ -23,7 +23,7 @@ license = { file = "LICENSE" }
 # see section: setuptools_scm
 # https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html#dynamic-metadata
 # dependencies will be read from text files
-dynamic = ["dependencies", "optional-dependencies"]
+dynamic = ["version", "dependencies", "optional-dependencies"]
 
 [project.urls]
 Homepage = "https://github.com/isce-framework/plant-isce3"
@@ -40,7 +40,8 @@ plant_isce3_resample = "plant_isce3.plant_isce3_resample:main"
 plant_isce3_runconfig = "plant_isce3.plant_isce3_runconfig:main"
 
 [tool.setuptools.dynamic]
-version = {attr = "plant_isce3.__version__"}
+# version = {attr = "plant_isce3.__version__"}
+version = "0.0.9"
 dependencies = { file = ["requirements.txt"] }
 
 # extra requirements: `pip install plant_isce3[docs]` or `pip install .[docs]`
