@@ -22,8 +22,8 @@ def test_plant_isce3_info():
 
 
 def test_plant_isce3_util():
-    util(NISAR_RSLC_PATH, orbit_kml=RSLC_ORBIT_KML,
-         force=True)
+    util(NISAR_RSLC_PATH, output_file=RSLC_ORBIT_KML,
+         orbit_kml=True, force=True)
     assert os.path.isfile(RSLC_ORBIT_KML)
 
 
@@ -48,8 +48,8 @@ def test_plant_isce3_gcov():
     plant.execute(f'gcov.py {NISAR_GCOV_RUNCONFIG} --no-log')
     assert os.path.isfile(NISAR_GCOV_PATH)
 
-    util(NISAR_GCOV_PATH, orbit_kml=GCOV_ORBIT_KML,
-         force=True)
+    util(NISAR_GCOV_PATH, output_file=GCOV_ORBIT_KML,
+         orbit_kml=True, force=True)
     assert os.path.isfile(GCOV_ORBIT_KML)
 
     info(NISAR_GCOV_PATH)

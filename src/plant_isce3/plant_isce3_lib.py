@@ -4,7 +4,6 @@ import time
 import datetime
 import json
 import gc
-import tempfile
 
 import plant_isce3
 import importlib
@@ -354,7 +353,7 @@ def add_arguments(parser,
             'ISCE3 RTC arguments')
 
     if rtc_options or input_rtc:
-        geocode_cov_group.add_argument(
+        rtc_group.add_argument(
             "--input-rtc",
             dest="input_rtc",
             type=str,
@@ -432,6 +431,7 @@ def add_arguments(parser,
 
     if orbit_files:
         parser.add_argument(
+            "--orbit",
             "--orbit-file",
             "--orbit-files",
             dest="orbit_files",
@@ -452,6 +452,52 @@ def add_arguments(parser,
             required=tec_files == 2,
             help="Total electron content (TEC) file",
         )
+
+
+def apply_slc_corrections(burst_in,
+
+                          flag_output_complex: bool = False,
+                          flag_thermal_correction: bool = True,
+                          flag_apply_abs_rad_correction: bool = True,
+                          clip_min=0):
+
+    temp_vrt = plant.get_temporary_file(ext='vrt')
+    burst_in.slc_to_vrt_file(temp_vrt)
+    slc_gdal_ds = gdal.Open(temp_vrt)
+    arr_slc_from = slc_gdal_ds.ReadAsArray()
+
+    if flag_thermal_correction:
+        print('applying thermal noise correction to burst SLC')
+        corrected_image = (np.abs(arr_slc_from) ** 2 -
+                           burst_in.thermal_noise_lut)
+
+        min_backscatter = clip_min
+        max_backscatter = None
+        corrected_image = np.clip(corrected_image, min_backscatter,
+                                  max_backscatter)
+
+    else:
+        corrected_image = np.abs(arr_slc_from) ** 2
+
+    if flag_apply_abs_rad_correction:
+        print('applying absolute radiometric correction to burst'
+              ' SLC')
+        corrected_image = \
+            corrected_image / burst_in.burst_calibration.beta_naught ** 2
+
+    if flag_output_complex:
+        factor_mag = np.sqrt(corrected_image) / np.abs(arr_slc_from)
+        factor_mag[np.isnan(factor_mag)] = 0.0
+        corrected_image = arr_slc_from * factor_mag
+
+    return corrected_image
+
+
+def get_isce3_raster(raster_file, *args, **kwargs):
+    expanded_filename = plant.get_filename(raster_file)
+    if expanded_filename is None:
+        return isce3.io.Raster(raster_file, *args, **kwargs)
+    return isce3.io.Raster(expanded_filename, *args, **kwargs)
 
 
 def get_attribute(attribute_name, precedence_value, plant_script_obj):
@@ -577,15 +623,71 @@ class PlantIsce3Sensor():
 
     @property
     def burst(self):
-        if len(self.burst_dict) == 1:
+        if len(self.burst_dict) != 1:
+            print('ERROR the dataset contains multiple bursts:'
+                  f' {self.burst_dict.keys()}. Please select a burst.')
+            return
 
-            burst_id = list(self.burst_dict.keys())[0]
-            first_pol = list(self.burst_dict[burst_id])[0]
-            print('first pol:', first_pol)
-            return self.burst_dict[burst_id][first_pol]
+        burst_id = list(self.burst_dict.keys())[0]
+        first_pol = list(self.burst_dict[burst_id])[0]
 
-        print('ERROR the dataset contains multiple bursts:'
-              f' {self.burst_dict.keys()}. Please select a burst.')
+        return self.burst_dict[burst_id][first_pol]
+
+    def get_sentinel_1_input_raster(self, input_raster=None,
+                                    flag_transform_input_raster=None,
+                                    flag_output_complex=False,
+                                    flag_thermal_correction=True,
+                                    flag_apply_abs_rad_correction=True,
+                                    clip_min=0):
+
+        if input_raster is not None:
+            if flag_transform_input_raster is not False:
+                flag_apply_transformation = \
+                    self.plant_script_obj.plant_transform_obj.flag_apply_transformation()
+                image_obj = self.plant_script_obj.read_image(input_raster)
+            else:
+                flag_apply_transformation = False
+                image_obj = plant.read_image(input_raster)
+            if flag_apply_transformation:
+                temp_file = plant.get_temporary_file(append=True,
+                                                     ext='vrt')
+
+                for b in range(image_obj.nbands):
+                    band = image_obj.get_band(band=b)
+                    image_obj.set_band(band, band=b)
+                print(f'*** creating temporary file: {temp_file}')
+                self.plant_script_obj.save_image(image_obj, temp_file,
+                                                 force=True,
+                                                 output_format='VRT')
+                input_raster = temp_file
+            return input_raster
+
+        if len(self.burst_dict) != 1:
+            print('ERROR the dataset contains multiple bursts:'
+                  f' {self.burst_dict.keys()}. Please select a burst.')
+            return
+
+        pol_array_list = []
+        for burst_pol_dict in self.burst_dict.values():
+
+            pol_list = list(burst_pol_dict.keys())
+            burst = burst_pol_dict[pol_list[0]]
+
+            corrected_image = plant_isce3.apply_slc_corrections(
+                burst,
+
+                flag_output_complex=flag_output_complex,
+                flag_thermal_correction=flag_thermal_correction,
+                flag_apply_abs_rad_correction=flag_apply_abs_rad_correction,
+                clip_min=clip_min)
+
+            pol_array_list.append(corrected_image)
+
+        temp_all_pol_vrt = plant.get_temporary_file(ext='tif')
+        plant.save_image(pol_array_list, output_file=temp_all_pol_vrt,
+                         force=True)
+        plant.append_temporary_file(temp_all_pol_vrt)
+        return temp_all_pol_vrt
 
     def get_orbit(self):
         if self.sensor_name == 'NISAR':
@@ -1164,7 +1266,7 @@ class PlantIsce3Script(plant.PlantScript):
             print(f'output format: {output_format}')
             print(f'GDAL data type: {gdal_dtype}')
 
-        output_obj = isce3.io.Raster(
+        output_obj = plant_isce3.get_isce3_raster(
             filename,
             int(width),
             int(length),
@@ -1174,9 +1276,8 @@ class PlantIsce3Script(plant.PlantScript):
 
         return output_obj
 
-    def _get_input_raster_from_nisar_slc(self, input_raster):
-
-        frequency_str = self.get_frequency_str()
+    def _get_input_raster_from_nisar_slc(self, input_raster,
+                                         plant_product_obj=None):
 
         if input_raster is not None:
             flag_apply_transformation = \
@@ -1191,6 +1292,8 @@ class PlantIsce3Script(plant.PlantScript):
                                 output_format='VRT')
                 input_raster = temp_file
         else:
+
+            frequency_str = plant_product_obj.get_frequency_str()
             raster_file = f'NISAR:{self.input_file}:{frequency_str}'
             temp_file = plant.get_temporary_file(append=True,
                                                  ext='vrt')
@@ -1388,7 +1491,7 @@ def get_raster_from_data(data, scratch_path='.'):
     del dset
     gc.collect()
 
-    temp_raster = isce3.io.Raster(temp_file)
+    temp_raster = plant_isce3.get_isce3_raster(temp_file)
     return temp_raster
 
 
@@ -1497,6 +1600,97 @@ def _get_output_dict_from_parser(parser, args, module_name):
     output_dict['flag_new_mem_output'] = flag_new_mem_output
 
     return output_dict
+
+
+def compute_correction_lut(burst_in, dem_raster,
+                           rg_step_meters,
+                           az_step_meters,
+                           apply_bistatic_delay_correction,
+                           apply_static_tropospheric_delay_correction):
+
+    rg_lut = None
+    az_lut = None
+
+    if (not apply_bistatic_delay_correction and
+            not apply_static_tropospheric_delay_correction):
+        return rg_lut, az_lut
+
+    numrow_orbit = burst_in.orbit.position.shape[0]
+    vel_mid = burst_in.orbit.velocity[numrow_orbit // 2, :]
+    spd_mid = np.linalg.norm(vel_mid)
+    pos_mid = burst_in.orbit.position[numrow_orbit // 2, :]
+    alt_mid = np.linalg.norm(pos_mid)
+
+    r = 6371000.0
+
+    az_step_sec = (az_step_meters * alt_mid) / (spd_mid * r)
+
+    bistatic_delay = burst_in.bistatic_delay(range_step=rg_step_meters,
+                                             az_step=az_step_sec)
+
+    if apply_bistatic_delay_correction:
+        az_lut = isce3.core.LUT2d(bistatic_delay.x_start,
+                                  bistatic_delay.y_start,
+                                  bistatic_delay.x_spacing,
+                                  bistatic_delay.y_spacing,
+                                  -bistatic_delay.data)
+
+    if not apply_static_tropospheric_delay_correction:
+        return rg_lut, az_lut
+
+    epsg = dem_raster.get_epsg()
+    proj = isce3.core.make_projection(epsg)
+    ellipsoid = proj.ellipsoid
+
+    rdr_grid = burst_in.as_isce3_radargrid(az_step=az_step_sec,
+                                           rg_step=rg_step_meters)
+
+    grid_doppler = isce3.core.LUT2d()
+
+    rdr2geo_obj = isce3.geometry.Rdr2Geo(rdr_grid, burst_in.orbit,
+                                         ellipsoid, grid_doppler,
+                                         threshold=1.0e-8)
+
+    height_file = plant.get_temporary_file(ext='tif')
+    incidence_angle_file = plant.get_temporary_file(ext='tif')
+
+    topo_output = {height_file: gdal.GDT_Float32,
+                   incidence_angle_file: gdal.GDT_Float32}
+
+    raster_list = []
+    for fname, dtype in topo_output.items():
+        topo_output_raster = isce3.io.Raster(fname,
+                                             rdr_grid.width, rdr_grid.length,
+                                             1, dtype, 'ENVI')
+        raster_list.append(topo_output_raster)
+
+    height_raster, incidence_raster = raster_list
+
+    rdr2geo_obj.topo(dem_raster, x_raster=None, y_raster=None,
+                     height_raster=height_raster,
+                     incidence_angle_raster=incidence_raster)
+
+    height_raster.close_dataset()
+    incidence_raster.close_dataset()
+
+    height_arr =\
+        gdal.Open(height_file, gdal.GA_ReadOnly).ReadAsArray()
+    incidence_angle_arr =\
+        gdal.Open(incidence_angle_file, gdal.GA_ReadOnly).ReadAsArray()
+
+    zenith_path_delay = 2.3
+    reference_height = 6000.0
+    tropo = (zenith_path_delay
+             / np.cos(np.deg2rad(incidence_angle_arr))
+             * np.exp(-1 * height_arr / reference_height))
+
+    rg_lut = isce3.core.LUT2d(bistatic_delay.x_start,
+                              bistatic_delay.y_start,
+                              bistatic_delay.x_spacing,
+                              bistatic_delay.y_spacing,
+                              tropo)
+
+    return rg_lut, az_lut
 
 
 def point2epsg(lon, lat):

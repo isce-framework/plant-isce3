@@ -64,7 +64,7 @@ class PlantIsce3Topo(plant_isce3.PlantIsce3Script):
         orbit = plant_product_obj.get_orbit()
         doppler = plant_product_obj.get_grid_doppler()
 
-        dem_raster = isce3.io.Raster(self.dem_file)
+        dem_raster = plant_isce3.get_isce3_raster(self.dem_file)
         if self.epsg is None:
             self.epsg = dem_raster.get_epsg()
 

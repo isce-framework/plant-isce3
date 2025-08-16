@@ -38,7 +38,7 @@ class PlantIsce3Resample(plant_isce3.PlantIsce3Script):
             self.print('Operation cancelled.', 1)
             return
 
-        dem_raster = isce3.io.Raster(self.input_file)
+        dem_raster = plant_isce3.get_isce3_raster(self.input_file)
         if self.epsg is None:
             self.epsg = dem_raster.get_epsg()
 
