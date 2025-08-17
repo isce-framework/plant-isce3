@@ -1733,6 +1733,7 @@ def execute(command,
 
     module_obj = importlib.import_module('plant_isce3.' + module_name)
 
+    current_script = plant.plant_config.current_script
     method_to_execute = getattr(module_obj, 'main')
 
     if plant.plant_config.logger_obj is None:
@@ -1807,7 +1808,11 @@ def execute(command,
         if verbose:
             print(f'PLAnT (API-completed) - {command_line}'
                   f'{ret_str}')
-        return ret
+
+    plant.plant_config.current_script = current_script
+
+    gc.collect()
+    return ret
 
 
 class ModuleWrapper(object):
