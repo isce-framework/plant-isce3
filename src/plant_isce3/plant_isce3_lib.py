@@ -539,7 +539,7 @@ class PlantIsce3Sensor():
             self.sensor_name = 'NISAR'
             self.nisar_product_obj = open_product(
                 self.input_file)
-            self.nisar_frequency = self.get_frequency_str()
+            self.frequency = self.get_frequency_str()
             return
 
         if self.input_file.endswith('.zip'):
@@ -552,6 +552,11 @@ class PlantIsce3Sensor():
     def get_frequency_str(self):
         if (self.sensor_name != 'NISAR'):
             return
+
+        if self.plant_script_obj is not None:
+            frequency = getattr(self.plant_script_obj, 'frequency', None)
+            if frequency is not None:
+                return frequency
 
         frequency_str = list(
             self.nisar_product_obj.polarizations.keys())[0]
@@ -731,7 +736,7 @@ class PlantIsce3Sensor():
     def get_radar_grid(self):
         if self.sensor_name == 'NISAR':
             return self.nisar_product_obj.getRadarGrid(
-                self.nisar_frequency)
+                self.frequency)
 
         if self.sensor_name == 'Sentinel-1':
             return self.burst.as_isce3_radargrid()
