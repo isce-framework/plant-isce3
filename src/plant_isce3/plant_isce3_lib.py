@@ -539,7 +539,7 @@ class PlantIsce3Sensor():
             self.sensor_name = 'NISAR'
             self.nisar_product_obj = open_product(
                 self.input_file)
-            self.nisar_frequency = self.get_frequency_str()
+            self.frequency = self.get_frequency_str()
             return
 
         if self.input_file.endswith('.zip'):
@@ -552,6 +552,11 @@ class PlantIsce3Sensor():
     def get_frequency_str(self):
         if (self.sensor_name != 'NISAR'):
             return
+
+        if self.plant_script_obj is not None:
+            frequency = getattr(self.plant_script_obj, 'frequency', None)
+            if frequency is not None:
+                return frequency
 
         frequency_str = list(
             self.nisar_product_obj.polarizations.keys())[0]
@@ -731,7 +736,7 @@ class PlantIsce3Sensor():
     def get_radar_grid(self):
         if self.sensor_name == 'NISAR':
             return self.nisar_product_obj.getRadarGrid(
-                self.nisar_frequency)
+                self.frequency)
 
         if self.sensor_name == 'Sentinel-1':
             return self.burst.as_isce3_radargrid()
@@ -1733,6 +1738,7 @@ def execute(command,
 
     module_obj = importlib.import_module('plant_isce3.' + module_name)
 
+    current_script = plant.plant_config.current_script
     method_to_execute = getattr(module_obj, 'main')
 
     if plant.plant_config.logger_obj is None:
@@ -1807,7 +1813,11 @@ def execute(command,
         if verbose:
             print(f'PLAnT (API-completed) - {command_line}'
                   f'{ret_str}')
-        return ret
+
+    plant.plant_config.current_script = current_script
+
+    gc.collect()
+    return ret
 
 
 class ModuleWrapper(object):

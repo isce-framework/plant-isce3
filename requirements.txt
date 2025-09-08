@@ -1,6 +1,6 @@
-gdal
-isce3
-plant
+gdal>=3.8
+isce3>=0.24.5
+plant>=0.5.8
 numpy>=2.0.0
 ruamel_yaml>=0.15
 argparse

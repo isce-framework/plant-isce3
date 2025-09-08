@@ -2,10 +2,9 @@
 
 import plant
 import plant_isce3
-
 import numpy as np
 from osgeo import osr
-
+import h5py
 from nisar.products.readers import open_product
 
 
@@ -88,11 +87,29 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
         print('## product type:', nisar_product_obj.productType)
         print('## SAR band:', nisar_product_obj.sarBand)
         print('## level:', nisar_product_obj.getProductLevel())
+
         print('## frequencies/polarizations:')
         freq_pol_dict = nisar_product_obj.polarizations
         with plant.PlantIndent():
             for freq, pol_list in freq_pol_dict.items():
                 print(f'{freq}: {pol_list}')
+        if nisar_product_obj.productType == 'GCOV':
+
+            print('## covariance terms:')
+            freq_pol_dict = nisar_product_obj.covarianceTerms
+            with plant.PlantIndent():
+                for freq, cov_terms_list in freq_pol_dict.items():
+                    print(f'{freq}: {cov_terms_list}')
+
+            metadata_path = nisar_product_obj.MetadataPath
+            with h5py.File(self.input_file, 'r', swmr=True) as gcov_h5_obj:
+                is_full_covariance = gcov_h5_obj[
+                    f'{metadata_path}/processingInformation/parameters/'
+                    'isFullCovariance'][()]
+                if not isinstance(is_full_covariance, str):
+                    is_full_covariance = is_full_covariance.decode()
+                print('## full covariance (True/False):', is_full_covariance)
+
         polygon = nisar_product_obj.identification.boundingPolygon
 
         if (nisar_product_obj.productType == 'GCOV' or
@@ -100,8 +117,8 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
             for freq, pol_list in freq_pol_dict.items():
                 print(f'## geogrid frequency {freq}')
                 with plant.PlantIndent():
-                    image_obj = self.read_image(
-                        f'NISAR:{self.input_file}:{freq}')
+                    image_obj = self.read_image(f'NISAR:{self.input_file}:'
+                                                f'{freq}')
                     plant_geogrid_obj = plant.get_coordinates(
                         image_obj=image_obj)
                     plant_geogrid_obj.print()
