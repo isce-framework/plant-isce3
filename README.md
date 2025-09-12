@@ -17,31 +17,32 @@ This software may be subject to U.S. export control laws. By accepting this soft
 
 ---
 
-## Installation
+# Installation
 
-1. Install PLAnT and ISCE3. Suggested commands:
+## 1. From conda-forge (Recommended)
 
 ```bash
-conda install plant -c plant
-conda install isce3 -c conda-forge
+conda install plant-isce3 -c conda-forge
 ```
 
-2. Download the source code and move working directory to clone repository:
+## 2. Conda/pip
+1. Clone PLAnT-ISCE3 repository
+2. Install PLAnT-ISCE3 using pip:
+```bash
+git clone https://github.com/isce-framework/plant-isce3.git
+cd plant-isce3
+python -m pip install .
+```
+
+## 3. From a conda environment, manually setting PATH and PYTHONPATH environment variables
+1. Clone PLAnT-ISCE3 repository
+2. Install PLAnT-ISCE3 dependencies listed in `requirements.txt`
+3. Add PLAnT-ISCE3 parent folder to PYTHONPATH variable
+4. Add PLAnT-ISCE3 applications folder to PATH variable
 
 ```bash
 git clone https://github.com/isce-framework/plant-isce3.git
 cd plant-isce3
-```
-
-3.1 Install PLAnT-ISCE3:
-
-```bash
-python -m pip install .
-```
-
-3.2. Or via environment path setup:
-
-```bash
 export PLANT_ISCE3_HOME=$PWD/src
 export PYTHON_PATH=${PYTHON_PATH}:${PLANT_ISCE3_HOME}
 export PATH=${PATH}:${PLANT_ISCE3_HOME}/plant_isce3
