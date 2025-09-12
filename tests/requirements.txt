@@ -4,7 +4,6 @@ isce3 >=0.24.5
 plant >=0.5.5
 numpy >=2.0.0
 ruamel_yaml >=0.15
-argparse
 libnetcdf
 matplotlib
 scipy
