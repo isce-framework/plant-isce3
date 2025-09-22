@@ -18,6 +18,8 @@ from nisar.products.readers.orbit import load_orbit_from_xml
 
 import plant
 
+DEFAULT_ISCE3_TEMPORARY_FORMAT = 'GTiff'
+
 
 def add_arguments(parser,
                   abs_cal_factor=0,
@@ -452,6 +454,112 @@ def add_arguments(parser,
             required=tec_files == 2,
             help="Total electron content (TEC) file",
         )
+
+
+def multilook_isce3(input_raster_file, output_file,
+                    nlooks_y, nlooks_x,
+                    transform_square=False,
+                    block_nlines=4096,
+                    verbose=True):
+
+    input_raster = isce3.io.Raster(input_raster_file)
+
+    width_ml = input_raster.width // nlooks_x
+    length_ml = input_raster.length // nlooks_y
+
+    exponent = 2 if transform_square else 0
+
+    if exponent % 2 == 0:
+        output_dtype = gdal.GDT_Float32
+    else:
+        output_dtype = gdal.GDT_CFloat32
+    output_dir = os.path.dirname(output_file)
+    if output_dir and not os.path.isdir(output_dir):
+        os.makedirs(output_dir)
+
+    nbands = input_raster.num_bands
+    output_raster = isce3.io.Raster(output_file,
+
+                                    width_ml,
+                                    length_ml,
+                                    nbands,
+                                    output_dtype,
+                                    "ENVI")
+
+    if verbose:
+        print('block number of lines:', block_nlines)
+
+    if block_nlines is not None and plant.isvalid(block_nlines):
+        block_nlines = int(np.ceil(float(block_nlines) / nlooks_y) *
+                           nlooks_y)
+
+        n_blocks = int(np.ceil(float(input_raster.length) / block_nlines))
+    else:
+        block_nlines = input_raster.length
+        n_blocks = 1
+
+    if verbose:
+        print('block number of lines (rounded to nlooks az):', block_nlines)
+
+    for band in range(nbands):
+
+        with plant.PrintProgress(n_blocks) as progress_obj:
+
+            for block in range(n_blocks):
+                progress_obj.print_progress(block)
+
+                start_line = block_nlines * block
+                end_line = min([block_nlines * (block + 1),
+                                input_raster.length + 1])
+                block_array = input_raster.get_block(
+                    key=np.s_[start_line:end_line, :],
+                    band=band + 1)
+
+                if exponent > 1:
+                    block_array = np.absolute(block_array) ** 2
+
+                multilooked_image = isce3.signal.multilook_nodata(
+                    block_array,
+                    nlooks_y, nlooks_x, np.nan)
+
+                start_line_ml = start_line // nlooks_y
+                end_line_ml = end_line // nlooks_y
+                output_raster.set_block(
+                    key=np.s_[start_line_ml:end_line_ml, :],
+                    value=multilooked_image,
+                    band=band + 1)
+
+    del input_raster
+    del output_raster
+
+    input_gdal_ds = gdal.Open(input_raster_file)
+    geotransform = input_gdal_ds.GetGeoTransform()
+    if geotransform is None:
+        return
+
+    geotransform = list(geotransform)
+    projection = input_gdal_ds.GetProjection()
+    input_gdal_ds.FlushCache()
+    input_gdal_ds.Close()
+
+    del input_gdal_ds
+
+    if verbose:
+        print('geotransform (original):', geotransform)
+    geotransform[1] = geotransform[1] * nlooks_x
+    geotransform[5] = geotransform[5] * nlooks_y
+
+    if verbose:
+        print('geotransform (multilooked):', geotransform)
+        print('projection:', projection)
+
+    output_gdal_ds = gdal.Open(output_file, gdal.GA_Update)
+    output_gdal_ds.SetGeoTransform(geotransform)
+    output_gdal_ds.SetProjection(projection)
+    output_gdal_ds.FlushCache()
+    output_gdal_ds.Close()
+
+    del output_gdal_ds
 
 
 def apply_slc_corrections(burst_in,
@@ -967,6 +1075,25 @@ class PlantIsce3Script(plant.PlantScript):
         except TypeError:
             super().__init__(*args, **kwargs)
 
+        if self.getattr2('input_file') is not None:
+            ret_dict = plant.parse_filename(self.input_file)
+            if 'driver' in ret_dict.keys() and ret_dict['driver'] == 'NISAR':
+                self.input_file = ret_dict['filename']
+                frequency_from_key = ret_dict['key']
+
+                if (self.hasattr('frequency') and
+                    self.frequency is not None and
+                    frequency_from_key is not None and
+                        self.frequency != frequency_from_key):
+                    self.print('ERROR argument frequency ("{self.frequency}")'
+                               ' differs from NISAR-driver frequency'
+                               f' ("{frequency_from_key}")')
+                    return
+
+                elif (self.hasattr('frequency') and
+                      frequency_from_key is not None):
+                    self.frequency = frequency_from_key
+
     def load_product(self, verbose=True):
 
         return PlantIsce3Sensor(plant_script_obj=self, verbose=verbose)
@@ -1244,6 +1371,51 @@ class PlantIsce3Script(plant.PlantScript):
 
         return geogrid
 
+    def get_isce3_temporary_format(self, output_file, output_format=None):
+
+        if output_format is not None and 'tif' in output_format.lower():
+            output_format = 'GTiff'
+            if output_format in plant.OUTPUT_FORMAT_MAP.keys():
+                output_format = plant.OUTPUT_FORMAT_MAP[output_format]
+            return output_format
+
+        if not output_file:
+            return DEFAULT_ISCE3_TEMPORARY_FORMAT
+
+        filename, extension = os.path.splitext(output_file)
+
+        extension = extension.lower()
+        if extension and extension.startswith('.'):
+            extension = extension[1:]
+        if (extension == 'tif' or extension == 'tiff'):
+            output_format = 'GTiff'
+        elif (extension == 'bin'):
+            output_format = 'ENVI'
+
+        else:
+            output_format = DEFAULT_ISCE3_TEMPORARY_FORMAT
+        if output_format in plant.OUTPUT_FORMAT_MAP.keys():
+            output_format = plant.OUTPUT_FORMAT_MAP[output_format]
+        return output_format
+
+    def update_output_format(self, ret_dict):
+        for output_file in ret_dict.values():
+
+            expected_output_format = plant.get_output_format(
+                output_file)
+            image_obj = plant.read_image(output_file)
+            actual_output_format = image_obj.file_format
+            if expected_output_format == actual_output_format:
+                continue
+            plant.util(output_file, output_file=output_file,
+                       output_format=expected_output_format,
+                       force=True)
+            if actual_output_format != 'ENVI':
+                continue
+            envi_header = plant.get_envi_header(output_file)
+            if os.path.isfile(envi_header):
+                os.remove(envi_header)
+
     def _create_output_raster(self, filename, nbands=1,
                               gdal_dtype=gdal.GDT_Float32,
                               width=None, length=None):
@@ -1260,7 +1432,7 @@ class PlantIsce3Script(plant.PlantScript):
         if output_dir and not os.path.isdir(output_dir):
             os.makedirs(output_dir)
 
-        output_format = plant.get_output_format(filename)
+        output_format = self.get_isce3_temporary_format(filename)
 
         print(f'creating file: {filename}')
 
@@ -1281,13 +1453,99 @@ class PlantIsce3Script(plant.PlantScript):
 
         return output_obj
 
-    def _get_input_raster_from_nisar_slc(self, input_raster,
+    def _symmetrize_cross_pols(self, hv_ref, vh_ref):
+        print(f'Symmetrizing: {hv_ref} and {vh_ref}')
+        hv_raster_obj = plant_isce3.get_isce3_raster(hv_ref)
+        vh_raster_obj = plant_isce3.get_isce3_raster(vh_ref)
+        width = hv_raster_obj.width
+        length = hv_raster_obj.length
+        gdal_dtype = hv_raster_obj.datatype()
+        temp_symmetrized_file = plant.get_temporary_file(
+            append=True, suffix='_symmetrized', ext='tif')
+        print('*** temporary symmetrized file:'
+              f' {temp_symmetrized_file}')
+        symmetrized_hv_raster_obj = self._create_output_raster(
+            temp_symmetrized_file, nbands=1, gdal_dtype=gdal_dtype,
+            width=width, length=length)
+        isce3.polsar.symmetrize_cross_pol_channels(
+            hv_raster_obj, vh_raster_obj, symmetrized_hv_raster_obj)
+        del symmetrized_hv_raster_obj
+        return temp_symmetrized_file
+
+    def _get_symmetrized_input_raster(self, image_obj, temp_file,
+                                      temp_symmetrized_file,
+                                      hv_band=None, vh_band=None,
+                                      output_format=None):
+        flag_symmetrize = getattr(self, 'flag_symmetrize', None)
+
+        with plant.PlantIndent():
+            output_band = 0
+            for b in range(image_obj.nbands):
+                band = image_obj.get_band(band=b)
+                if (flag_symmetrize and
+                        ((vh_band is not None and vh_band == b) or
+                         (band.name is not None and
+                          band.name.upper() == 'VH'))):
+                    print('*** skipping VH')
+                    continue
+                if (flag_symmetrize and
+                        ((hv_band is not None and hv_band == b) or
+                         (band.name is not None and
+                          band.name.upper() == 'HV'))):
+                    symmetrized_hv_obj = self.read_image(temp_symmetrized_file)
+                    symmetrized_band = symmetrized_hv_obj.band
+                    image_obj.set_band(symmetrized_band, band=output_band)
+
+                    output_band += 1
+                    print('*** skipping HV')
+                    print('*** reading symmetrized HV')
+                    continue
+                print(f'*** adding {band} to VRT file')
+                image_obj.set_band(band, band=output_band)
+                output_band += 1
+            if flag_symmetrize:
+                image_obj.set_nbands(image_obj.nbands - 1,
+                                     realize_changes=False)
+            self.save_image(image_obj, temp_file, force=True,
+                            output_format=output_format)
+
+    def get_input_raster_from_nisar_slc(self, *args, **kwargs):
+
+        with plant.PlantIndent():
+            input_raster = self._get_input_raster_from_nisar_slc(*args,
+                                                                 **kwargs)
+
+        return input_raster
+
+    def _get_input_raster_from_nisar_slc(self, input_raster=None,
+                                         input_file=None,
                                          plant_product_obj=None):
 
+        if (input_raster is None and
+                getattr(self, 'input_raster', None) is not None):
+            input_raster = self.input_raster
+
+        if input_file is None:
+            input_file = self.input_file
+
+        flag_transform_input_raster = \
+            getattr(self, 'flag_transform_input_raster', None)
+        flag_symmetrize = \
+            getattr(self, 'flag_symmetrize', None)
+        symmetrize_bands = \
+            getattr(self, 'symmetrize_bands', None)
+
         if input_raster is not None:
-            flag_apply_transformation = \
-                self.plant_transform_obj.flag_apply_transformation()
-            image_obj = self.read_image(input_raster)
+
+            if flag_transform_input_raster is not False:
+
+                flag_apply_transformation = \
+                    self.plant_transform_obj.flag_apply_transformation()
+                image_obj = self.read_image(input_raster)
+
+            else:
+                flag_apply_transformation = False
+                image_obj = plant.read_image(input_raster)
 
             if flag_apply_transformation:
                 temp_file = plant.get_temporary_file(append=True,
@@ -1296,22 +1554,122 @@ class PlantIsce3Script(plant.PlantScript):
                 self.save_image(image_obj, temp_file, force=True,
                                 output_format='VRT')
                 input_raster = temp_file
-        else:
 
+            if flag_symmetrize and symmetrize_bands is None:
+                self.print('ERROR symmetrization option with input raster'
+                           ' requires the parameter --symmetrize-bands')
+                return
+            elif flag_symmetrize:
+                hv_band = symmetrize_bands[0]
+                vh_band = symmetrize_bands[1]
+
+                hv_obj = plant.read_image(input_raster, band=hv_band)
+                temp_hv_file = plant.get_temporary_file(
+                    append=True, suffix='_hv', ext='vrt')
+                plant.save_image(hv_obj, temp_hv_file, force=True,
+                                 output_format='VRT')
+
+                vh_obj = plant.read_image(input_raster, band=vh_band)
+                temp_vh_file = plant.get_temporary_file(
+                    append=True, suffix='_vh', ext='vrt')
+                plant.save_image(vh_obj, temp_vh_file, force=True,
+                                 output_format='VRT')
+
+                temp_symmetrized_file = self._symmetrize_cross_pols(
+                    temp_hv_file, temp_vh_file)
+
+                temp_file = plant.get_temporary_file(
+                    append=True, suffix='_input_raster_symmerized', ext='tif')
+                image_obj = self.read_image(input_raster)
+
+                self._get_symmetrized_input_raster(
+                    image_obj, temp_file, temp_symmetrized_file,
+                    hv_band=hv_band, vh_band=vh_band,
+                    output_format='TIFF')
+                input_raster = temp_file
+
+        else:
             frequency_str = plant_product_obj.get_frequency_str()
-            raster_file = f'NISAR:{self.input_file}:{frequency_str}'
+            self.print(f'selecting product frequency: {frequency_str}')
+            nisar_product_obj = open_product(input_file)
+            if nisar_product_obj.getProductLevel() == "L1":
+                imagery_path = (f'{nisar_product_obj.SwathPath}/'
+                                f'frequency{frequency_str}')
+            else:
+                imagery_path = (f'{nisar_product_obj.GridPath}/'
+                                f'frequency{frequency_str}')
+
+            if flag_symmetrize:
+                hv_ref = f'HDF5:{input_file}:{imagery_path}/HV'
+                vh_ref = f'HDF5:{input_file}:{imagery_path}/VH'
+                temp_symmetrized_file = self._symmetrize_cross_pols(
+                    hv_ref, vh_ref)
+
+            else:
+                temp_symmetrized_file = None
+
+            raster_file = f'NISAR:{input_file}:{frequency_str}'
             temp_file = plant.get_temporary_file(append=True,
                                                  ext='vrt')
             self.print(f'*** creating temporary file: {temp_file}')
             image_obj = self.read_image(raster_file)
-            print('*** image_obj.nbands:', image_obj.nbands)
-            self.save_image(image_obj, temp_file, force=True,
-                            output_format='VRT')
+
+            self._get_symmetrized_input_raster(
+                image_obj, temp_file, temp_symmetrized_file,
+                output_format='VRT')
             input_raster = temp_file
-        ret_dict = {}
-        ret_dict['input_raster'] = input_raster
-        ret_dict['image_obj'] = image_obj
-        return ret_dict
+
+        if ((getattr(self, 'nlooks_az', None) is not None
+             and self.nlooks_az > 1) or
+                (getattr(self, 'nlooks_rg', None) is not None and
+                 self.nlooks_rg > 1)):
+
+            if getattr(self, 'nlooks_az', None) is None:
+                nlooks_az = 1
+            else:
+                nlooks_az = self.nlooks_az
+            if getattr(self, 'nlooks_rg', None) is None:
+                nlooks_rg = 1
+            else:
+                nlooks_rg = self.nlooks_rg
+
+            self.print('multilooking input file')
+            dtype_str = plant.get_dtype_name(image_obj.dtype)
+            filter_kwargs = {}
+
+            self.print('data type:', dtype_str)
+            if ('COMPLEX' in dtype_str.upper() or
+                    'CFLOAT' in dtype_str.upper()):
+                exponent = 2
+
+                filter_kwargs['transform_square'] = True
+            else:
+                exponent = 1
+
+            self.print('exponent:', exponent)
+            self.print(f'number of looks: {nlooks_az} (az) x'
+                       f' {nlooks_rg} (rg)')
+            self.print(f'original: {image_obj.length} (length) x'
+                       f' {image_obj.width} (width)')
+
+            temp_file = plant.get_temporary_file(append=True,
+                                                 ext='tif')
+
+            plant_isce3.multilook_isce3(input_raster,
+                                        output_file=temp_file,
+                                        nlooks_y=nlooks_az,
+                                        nlooks_x=nlooks_rg,
+
+                                        **filter_kwargs)
+
+            image_obj = plant.read_image(temp_file)
+
+            self.print(f'multilooked: {image_obj.length} (length) x'
+                       f' {image_obj.width} (width)')
+
+            input_raster = temp_file
+
+        return input_raster
 
     def get_radar_grid_ml(self, radar_grid):
 
@@ -1339,17 +1697,25 @@ class PlantIsce3Script(plant.PlantScript):
                 (getattr(self, 'nlooks_rg', None) is not None and
                  self.nlooks_rg > 1)):
 
-            if getattr(self, 'nlooks_az', None):
+            if getattr(self, 'nlooks_az', None) is None:
                 nlooks_az = 1
             else:
                 nlooks_az = self.nlooks_az
-            if getattr(self, 'nlooks_rg', None):
+            if getattr(self, 'nlooks_rg', None) is None:
                 nlooks_rg = 1
             else:
                 nlooks_rg = self.nlooks_rg
 
+            self.print('multilooking radar grid')
             radar_grid_ml = radar_grid.multilook(nlooks_az,
                                                  nlooks_rg)
+            with plant.PlantIndent():
+                self.print(f'number of looks: {nlooks_az} (az) x'
+                           f' {nlooks_rg} (rg)')
+                self.print(f'original: {radar_grid.length} (length) x'
+                           f' {radar_grid.width} (width)')
+                self.print(f'multilooked: {radar_grid_ml.length} (length) x'
+                           f' {radar_grid_ml.width} (width)')
         else:
             radar_grid_ml = radar_grid
 
