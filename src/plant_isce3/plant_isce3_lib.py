@@ -464,8 +464,8 @@ def multilook_isce3(input_raster_file, output_file,
 
     input_raster = isce3.io.Raster(input_raster_file)
 
-    width_ml = input_raster.width // nlooks_x
-    length_ml = input_raster.length // nlooks_y
+    width_ml = int(input_raster.width // nlooks_x)
+    length_ml = int(input_raster.length // nlooks_y)
 
     exponent = 2 if transform_square else 0
 
@@ -484,7 +484,7 @@ def multilook_isce3(input_raster_file, output_file,
                                     length_ml,
                                     nbands,
                                     output_dtype,
-                                    "ENVI")
+                                    "GTiff")
 
     if verbose:
         print('block number of lines:', block_nlines)
@@ -520,10 +520,10 @@ def multilook_isce3(input_raster_file, output_file,
 
                 multilooked_image = isce3.signal.multilook_nodata(
                     block_array,
-                    nlooks_y, nlooks_x, np.nan)
+                    int(nlooks_y), int(nlooks_x), np.nan)
 
-                start_line_ml = start_line // nlooks_y
-                end_line_ml = end_line // nlooks_y
+                start_line_ml = int(start_line // nlooks_y)
+                end_line_ml = int(end_line // nlooks_y)
                 output_raster.set_block(
                     key=np.s_[start_line_ml:end_line_ml, :],
                     value=multilooked_image,

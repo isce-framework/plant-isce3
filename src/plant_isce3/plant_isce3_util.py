@@ -24,7 +24,11 @@ def get_parser():
                             input_file=1,
                             dem_file=1,
                             cmap=1,
-                            default_options=1,
+                            band=1,
+                            default_output_options=1,
+                            default_flags=1,
+                            output_format=1,
+                            multilook=1,
                             output_file=1,
                             output_dir=1)
 
@@ -65,10 +69,11 @@ def get_parser():
                        help=("Extract the runconfig used to generate the"
                              " product from its metadata."))
 
-    group.add_argument('--all-gcov-layers',
-                       dest='all_gcov_layers',
-                       action='store_true',
-                       help=("All GCOV layers"))
+    group.add_argument(
+        '--all-layers',
+        dest='all_layers',
+        action='store_true',
+        help=("All layers (only available for NISAR L2 products)"))
 
     group.add_argument('--data',
                        '--images',
@@ -164,6 +169,33 @@ def get_parser():
                         default='',
                         help="File prefix for option `--all-gcov-layers`")
 
+    parser.add_argument('--nlooks-x-freq-a',
+                        '--nlooks-x-a',
+                        type=int,
+                        help=('Number of looks in the X direction'
+                              ' for frequency A (when available)'),
+                        dest='nlooks_x_a')
+
+    parser.add_argument('--nlooks-y-freq-a',
+                        '--nlooks-y-a',
+                        type=int,
+                        help=('Number of looks in the X direction'
+                              ' for frequency A (when available)'),
+                        dest='nlooks_y_a')
+
+    parser.add_argument('--nlooks-x-freq-b',
+                        '--nlooks-x-b',
+                        type=int,
+                        help=('Number of looks in the X direction'
+                              ' for frequency B (when available)'),
+                        dest='nlooks_x_b')
+
+    parser.add_argument('--nlooks-y-freq-b',
+                        '--nlooks-y-b',
+                        type=int,
+                        help=('Number of looks in the X direction'
+                              ' for frequency B (when available)'),
+                        dest='nlooks_y_b')
     return parser
 
 
@@ -225,7 +257,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             self.run_sentinel_1_as_input(plant_product_obj)
 
         else:
-            self.run_nisar_as_input()
+            self.run_nisar_as_input(plant_product_obj)
 
         plant.append_output_file(self.output_file)
         return self.output_file
@@ -250,116 +282,42 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         elif self.runconfig_file:
             raise NotImplementedError
 
-        self.save_data(image_obj=image_obj)
+        self.save_image_obj(image_obj)
 
-    def run_nisar_as_input(self):
+    def run_nisar_as_input(self, plant_product_obj):
         nisar_product_obj = open_product(self.input_file)
+
+        if self.all_layers:
+            if self.frequency is not None:
+
+                self.nlooks_az, self.nlooks_rg = \
+                    self._get_nlooks(self.frequency)
+
+                suffix = f'_freq_{self.frequency.lower()}'
+
+                return self.save_all_layers(nisar_product_obj,
+                                            plant_product_obj,
+                                            suffix)
+
+            else:
+                frequencies = nisar_product_obj.polarizations.keys()
+                for freq in frequencies:
+                    self.print(f'## processing frequency {freq}')
+                    suffix = f'_freq_{freq.lower()}'
+                    self.frequency = freq
+
+                    self.nlooks_az, self.nlooks_rg = self._get_nlooks(freq)
+
+                    self.save_all_layers(nisar_product_obj,
+                                         plant_product_obj,
+                                         suffix)
+                self.frequency = None
+
+            return
 
         if self.frequency is None:
             freq_pol_dict = nisar_product_obj.polarizations
             self.frequency = list(freq_pol_dict.keys())[0]
-
-        if self.all_gcov_layers:
-            if not self.output_dir:
-                self.print('ERROR this option requires the output'
-                           ' directory (`--od / --output-dir).')
-                return
-            prefix = self.file_prefix
-            suffix = ''
-
-            if self.output_ext:
-                ext = self.output_ext
-            else:
-                ext = 'tif'
-
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}mask{suffix}.{ext}')
-            self.save_mask(nisar_product_obj)
-
-            self.output_file = os.path.join(
-                self.output_dir,
-                f'{prefix}rtcGammaToSigma{suffix}.{ext}')
-            self.save_rtc_gamma_to_sigma_layer(nisar_product_obj)
-            self.output_file = os.path.join(
-                self.output_dir,
-                f'{prefix}numberOfLooks{suffix}.{ext}')
-            self.save_number_of_looks_layer(nisar_product_obj)
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}data{suffix}.{ext}')
-
-            metadata_path = nisar_product_obj.MetadataPath
-            pol_list = nisar_product_obj.polarizations[self.frequency]
-
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}elevationAntennaPattern_'
-                                            '{pol}' + f'{suffix}.{ext}')
-            self.save_lut(f'{metadata_path}/calibrationInformation/'
-                          f'frequency{self.frequency}/'
-                          'elevationAntennaPattern/{pol}', pol_list=pol_list)
-
-            self.output_file = os.path.join(
-                self.output_dir, f'{prefix}noiseEquivalent'
-                'Backscatter_{pol}' + f'{suffix}.{ext}')
-            self.save_lut(f'{metadata_path}/calibrationInformation/'
-                          f'frequency{self.frequency}/'
-                          'noiseEquivalentBackscatter/{pol}',
-                          pol_list=pol_list)
-
-            self.output_file = os.path.join(
-                self.output_dir,
-                f'{prefix}dopplerCentroid{suffix}.{ext}')
-            self.save_lut(f'{metadata_path}/processingInformation/'
-                          f'parameters/frequency{self.frequency}/'
-                          'dopplerCentroid')
-
-            self.output_file = os.path.join(
-                self.output_dir,
-                f'{prefix}azimuthIonosphere{suffix}.{ext}')
-            self.save_lut(f'{metadata_path}/processingInformation/'
-                          f'timingCorrections/frequency{self.frequency}/'
-                          'azimuthIonosphere')
-
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}slantRangeIonosphere'
-                                            f'{suffix}.{ext}')
-            self.save_lut(f'{metadata_path}/processingInformation/'
-                          f'timingCorrections/frequency{self.frequency}/'
-                          'slantRangeIonosphere')
-
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}referenceTerrainHeight'
-                                            f'{suffix}.{ext}')
-            self.save_lut(f'{metadata_path}/processingInformation/'
-                          'parameters/referenceTerrainHeight')
-
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}rxHorizontalCrosspol'
-                                            f'{suffix}.{ext}')
-            self.save_lut(f'{metadata_path}/calibrationInformation/'
-                          'crosstalk/rxHorizontalCrosspol')
-
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}txHorizontalCrosspol'
-                                            f'{suffix}.{ext}')
-            self.save_lut(f'{metadata_path}/calibrationInformation/'
-                          'crosstalk/txHorizontalCrosspol')
-
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}rxVerticalCrosspol'
-                                            f'{suffix}.{ext}')
-            self.save_lut(f'{metadata_path}/calibrationInformation/'
-                          'crosstalk/rxVerticalCrosspol')
-
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}txVerticalCrosspol'
-                                            f'{suffix}.{ext}')
-            self.save_lut(f'{metadata_path}/calibrationInformation/'
-                          'crosstalk/txVerticalCrosspol')
-
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}data'
-                                            f'{suffix}.{ext}')
-            self.save_data()
 
         elif self.mask_file:
             self.save_mask(nisar_product_obj)
@@ -368,10 +326,12 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             self.save_layover_shadow_mask(nisar_product_obj)
 
         elif self.rtc_gamma_to_sigma_file:
-            self.save_rtc_gamma_to_sigma_layer(nisar_product_obj)
+
+            self.save_nisar_layer('rtcGammaToSigmaFactor', nisar_product_obj)
 
         elif self.number_of_looks_file:
-            self.save_number_of_looks_layer(nisar_product_obj)
+
+            self.save_nisar_layer('numberOfLooks', nisar_product_obj)
 
         elif self.data_file:
             self.save_data()
@@ -410,6 +370,130 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
             print(f'# file saved: {self.output_file}')
 
+    def _get_nlooks(self, freq):
+        freq_lower = freq.lower()
+        if self.getattr2(f'nlooks_y_{freq_lower}') is not None:
+            nlooks_y = self.getattr2(f'nlooks_y_{freq_lower}')
+        elif self.getattr2('nlooks_y') is not None:
+            nlooks_y = self.getattr2('nlooks_y')
+        else:
+            nlooks_y = 1
+
+        if self.getattr2(f'nlooks_x_{freq_lower}') is not None:
+            nlooks_x = self.getattr2(f'nlooks_x_{freq_lower}')
+        elif self.getattr2('nlooks_x') is not None:
+            nlooks_x = self.getattr2('nlooks_x')
+        else:
+            nlooks_x = 1
+
+        return nlooks_y, nlooks_x
+
+    def save_all_layers(self, nisar_product_obj, plant_product_obj,
+                        suffix=''):
+        if not self.output_dir:
+            self.print('ERROR this option requires the output'
+                       ' directory (`--od / --output-dir).')
+            return
+        prefix = self.file_prefix
+
+        if self.output_ext:
+            ext = self.output_ext
+        else:
+            ext = 'tif'
+
+        self.output_file = os.path.join(self.output_dir,
+                                        f'{prefix}mask{suffix}.{ext}')
+        self.save_mask(nisar_product_obj)
+
+        if nisar_product_obj.productType == 'GCOV':
+            self.output_file = os.path.join(
+                self.output_dir,
+                f'{prefix}rtcGammaToSigma{suffix}.{ext}')
+            self.save_nisar_layer('rtcGammaToSigmaFactor', nisar_product_obj)
+
+            self.output_file = os.path.join(
+                self.output_dir,
+                f'{prefix}numberOfLooks{suffix}.{ext}')
+            self.save_nisar_layer('numberOfLooks', nisar_product_obj)
+            self.output_file = os.path.join(self.output_dir,
+                                            f'{prefix}data{suffix}.{ext}')
+
+        metadata_path = nisar_product_obj.MetadataPath
+        pol_list = nisar_product_obj.polarizations[self.frequency]
+
+        self.output_file = os.path.join(self.output_dir,
+                                        f'{prefix}elevationAntennaPattern_'
+                                        '{pol}' + f'{suffix}.{ext}')
+        self.save_lut(f'{metadata_path}/calibrationInformation/'
+                      f'frequency{self.frequency}/'
+                      'elevationAntennaPattern/{pol}', pol_list=pol_list)
+
+        self.output_file = os.path.join(
+            self.output_dir, f'{prefix}noiseEquivalent'
+            'Backscatter_{pol}' + f'{suffix}.{ext}')
+        self.save_lut(f'{metadata_path}/calibrationInformation/'
+                      f'frequency{self.frequency}/'
+                      'noiseEquivalentBackscatter/{pol}',
+                      pol_list=pol_list)
+
+        self.output_file = os.path.join(
+            self.output_dir,
+            f'{prefix}dopplerCentroid{suffix}.{ext}')
+        self.save_lut(f'{metadata_path}/processingInformation/'
+                      f'parameters/frequency{self.frequency}/'
+                      'dopplerCentroid')
+
+        if nisar_product_obj.productType == 'GCOV':
+
+            self.output_file = os.path.join(
+                self.output_dir,
+                f'{prefix}azimuthIonosphere{suffix}.{ext}')
+            self.save_lut(f'{metadata_path}/processingInformation/'
+                          f'timingCorrections/frequency{self.frequency}/'
+                          'azimuthIonosphere')
+
+            self.output_file = os.path.join(self.output_dir,
+                                            f'{prefix}slantRangeIonosphere'
+                                            f'{suffix}.{ext}')
+            self.save_lut(f'{metadata_path}/processingInformation/'
+                          f'timingCorrections/frequency{self.frequency}/'
+                          'slantRangeIonosphere')
+
+            self.output_file = os.path.join(self.output_dir,
+                                            f'{prefix}rxHorizontalCrosspol'
+                                            f'{suffix}.{ext}')
+            self.save_lut(f'{metadata_path}/calibrationInformation/'
+                          'crosstalk/rxHorizontalCrosspol')
+
+            self.output_file = os.path.join(self.output_dir,
+                                            f'{prefix}txHorizontalCrosspol'
+                                            f'{suffix}.{ext}')
+            self.save_lut(f'{metadata_path}/calibrationInformation/'
+                          'crosstalk/txHorizontalCrosspol')
+
+            self.output_file = os.path.join(self.output_dir,
+                                            f'{prefix}rxVerticalCrosspol'
+                                            f'{suffix}.{ext}')
+            self.save_lut(f'{metadata_path}/calibrationInformation/'
+                          'crosstalk/rxVerticalCrosspol')
+
+            self.output_file = os.path.join(self.output_dir,
+                                            f'{prefix}txVerticalCrosspol'
+                                            f'{suffix}.{ext}')
+            self.save_lut(f'{metadata_path}/calibrationInformation/'
+                          'crosstalk/txVerticalCrosspol')
+
+        self.output_file = os.path.join(self.output_dir,
+                                        f'{prefix}referenceTerrainHeight'
+                                        f'{suffix}.{ext}')
+        self.save_lut(f'{metadata_path}/processingInformation/'
+                      'parameters/referenceTerrainHeight')
+
+        self.output_file = os.path.join(self.output_dir,
+                                        f'{prefix}data'
+                                        f'{suffix}.{ext}')
+        self.save_data(plant_product_obj)
+
     def run_raster_as_input(self):
         image_obj = plant.read_image(self.input_file)
 
@@ -420,7 +504,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             self.save_layover_shadow_mask(image_obj=image_obj)
 
         elif self.data_file:
-            self.save_data(image_obj=image_obj)
+            self.save_image_obj(image_obj)
 
         else:
             self.save_image(image_obj, self.output_file)
@@ -505,11 +589,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         self.save_image(plant_image_obj, output_file=self.output_file)
         plant.append_output_file(self.output_file)
 
-    def save_data(self, image_obj=None):
-        if image_obj is None:
-            image_ref = f'NISAR:{self.input_file}:{self.frequency}'
-            image_obj = self.read_image(image_ref)
-
+    def save_image_obj(self, image_obj):
         if ('complex' not in plant.get_dtype_name(image_obj.dtype).lower() or
                 self.flag_output_complex is not False):
             self.save_image(image_obj, output_file=self.output_file)
@@ -524,23 +604,43 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         self.save_image(image_list, output_file=self.output_file)
         plant.append_output_file(self.output_file)
 
+    def save_data(self, plant_product_obj):
+
+        input_raster = self.get_input_raster_from_nisar_slc(
+            input_raster=None,
+            plant_product_obj=plant_product_obj)
+
+        self.save_image(input_raster, output_file=self.output_file,
+                        force=True)
+
+        plant.append_output_file(self.output_file)
+
     def save_mask(self, nisar_product_obj=None,
                   image_obj=None):
 
-        image_obj = self.load_gcov_layer(
+        image_ref = self.get_grids_ref(
             'mask', nisar_product_obj, image_obj,
             valid_products=['GCOV', 'GSLC'])
 
-        mask_array = image_obj.image
+        image_obj = self.read_image(image_ref)
 
-        mask_ctable = self.get_mask_ctable(mask_array)
+        mask_array_obj = plant.filter_data(image_obj,
+                                           nlooks=[self.nlooks_az,
+                                                   self.nlooks_rg])
+        del image_obj
 
-        self.save_image(image_obj, output_file=self.output_file,
+        mask_array_obj.image = np.asarray(mask_array_obj.image,
+                                          dtype=np.uint8)
+        mask_array_obj.dtype = np.uint8
+
+        mask_ctable = self.get_mask_ctable(mask_array_obj.image)
+
+        self.save_image(mask_array_obj, output_file=self.output_file,
                         out_null=255, ctable=mask_ctable)
         plant.append_output_file(self.output_file)
 
-    def load_gcov_layer(self, layer_name, nisar_product_obj, image_obj,
-                        valid_products=['GCOV']):
+    def get_grids_ref(self, layer_name, nisar_product_obj, image_obj,
+                      valid_products=['GCOV', 'GSLC']):
         if image_obj is not None:
             return image_obj
         if nisar_product_obj.productType not in valid_products:
@@ -553,32 +653,35 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         grid_path = (f'{nisar_product_obj.GridPath}'
                      f'/frequency{self.frequency}/{layer_name}')
         image_ref = f'NETCDF:{self.input_file}:{grid_path}'
-        image_obj = self.read_image(image_ref)
 
-        return image_obj
+        return image_ref
 
-    def save_number_of_looks_layer(self, nisar_product_obj=None,
-                                   image_obj=None):
+    def save_nisar_layer(self, layer_name, nisar_product_obj=None,
 
-        image_obj = self.load_gcov_layer(
-            'numberOfLooks', nisar_product_obj, image_obj)
+                         image_obj=None):
 
-        self.save_image(image_obj, output_file=self.output_file)
-        plant.append_output_file(self.output_file)
+        image_ref = self.get_grids_ref(
+            layer_name, nisar_product_obj, image_obj)
 
-    def save_rtc_gamma_to_sigma_layer(self, nisar_product_obj=None,
-                                      image_obj=None):
+        if self.nlooks_az != 1 or self.nlooks_rg != 1:
 
-        image_obj = self.load_gcov_layer(
-            'rtcGammaToSigmaFactor', nisar_product_obj, image_obj)
+            temp_file = plant.get_temporary_file(ext='.tif', append=True)
+            plant_isce3.multilook_isce3(image_ref,
+                                        output_file=temp_file,
+                                        nlooks_y=self.nlooks_az,
+                                        nlooks_x=self.nlooks_rg)
 
-        self.save_image(image_obj, output_file=self.output_file)
+            self.save_image(temp_file, output_file=self.output_file)
+        else:
+            self.save_image(image_ref, output_file=self.output_file,
+                            force=True)
+
         plant.append_output_file(self.output_file)
 
     def save_layover_shadow_mask(self, nisar_product_obj=None,
                                  image_obj=None):
 
-        image_obj = self.load_gcov_layer(
+        image_obj = self.get_grids_ref(
             'layoverShadowMask', nisar_product_obj, image_obj)
 
         layover_shadow_mask_ctable = self.get_layover_shadow_mask_ctable()
