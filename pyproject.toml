@@ -36,6 +36,7 @@ plant_isce3_geocode = "plant_isce3.plant_isce3_geocode:main"
 plant_isce3_polygon = "plant_isce3.plant_isce3_polygon:main"
 plant_isce3_topo = "plant_isce3.plant_isce3_topo:main"
 plant_isce3_util = "plant_isce3.plant_isce3_util:main"
+plant_isce3_filter = "plant_isce3.plant_isce3_filter:main"
 plant_isce3_resample = "plant_isce3.plant_isce3_resample:main"
 plant_isce3_runconfig = "plant_isce3.plant_isce3_runconfig:main"
 
