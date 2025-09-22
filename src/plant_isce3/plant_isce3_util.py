@@ -265,94 +265,100 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                            ' directory (`--od / --output-dir).')
                 return
             prefix = self.file_prefix
+            suffix = ''
+
             if self.output_ext:
                 ext = self.output_ext
             else:
                 ext = 'tif'
 
             self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}mask.{ext}')
+                                            f'{prefix}mask{suffix}.{ext}')
             self.save_mask(nisar_product_obj)
 
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}rtcGammaToSigma.{ext}')
+            self.output_file = os.path.join(
+                self.output_dir,
+                f'{prefix}rtcGammaToSigma{suffix}.{ext}')
             self.save_rtc_gamma_to_sigma_layer(nisar_product_obj)
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}numberOfLooks.{ext}')
+            self.output_file = os.path.join(
+                self.output_dir,
+                f'{prefix}numberOfLooks{suffix}.{ext}')
             self.save_number_of_looks_layer(nisar_product_obj)
             self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}data.{ext}')
+                                            f'{prefix}data{suffix}.{ext}')
 
             metadata_path = nisar_product_obj.MetadataPath
             pol_list = nisar_product_obj.polarizations[self.frequency]
 
             self.output_file = os.path.join(self.output_dir,
                                             f'{prefix}elevationAntennaPattern_'
-                                            '{pol}' + f'.{ext}')
+                                            '{pol}' + f'{suffix}.{ext}')
             self.save_lut(f'{metadata_path}/calibrationInformation/'
                           f'frequency{self.frequency}/'
                           'elevationAntennaPattern/{pol}', pol_list=pol_list)
 
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}noiseEquivalent'
-                                            'Backscatter_{pol}' + f'.{ext}')
+            self.output_file = os.path.join(
+                self.output_dir, f'{prefix}noiseEquivalent'
+                'Backscatter_{pol}' + f'{suffix}.{ext}')
             self.save_lut(f'{metadata_path}/calibrationInformation/'
                           f'frequency{self.frequency}/'
                           'noiseEquivalentBackscatter/{pol}',
                           pol_list=pol_list)
 
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}dopplerCentroid.{ext}')
+            self.output_file = os.path.join(
+                self.output_dir,
+                f'{prefix}dopplerCentroid{suffix}.{ext}')
             self.save_lut(f'{metadata_path}/processingInformation/'
                           f'parameters/frequency{self.frequency}/'
                           'dopplerCentroid')
 
-            self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}azimuthIonosphere.{ext}')
+            self.output_file = os.path.join(
+                self.output_dir,
+                f'{prefix}azimuthIonosphere{suffix}.{ext}')
             self.save_lut(f'{metadata_path}/processingInformation/'
                           f'timingCorrections/frequency{self.frequency}/'
                           'azimuthIonosphere')
 
             self.output_file = os.path.join(self.output_dir,
                                             f'{prefix}slantRangeIonosphere'
-                                            f'.{ext}')
+                                            f'{suffix}.{ext}')
             self.save_lut(f'{metadata_path}/processingInformation/'
                           f'timingCorrections/frequency{self.frequency}/'
                           'slantRangeIonosphere')
 
             self.output_file = os.path.join(self.output_dir,
                                             f'{prefix}referenceTerrainHeight'
-                                            f'.{ext}')
+                                            f'{suffix}.{ext}')
             self.save_lut(f'{metadata_path}/processingInformation/'
                           'parameters/referenceTerrainHeight')
 
             self.output_file = os.path.join(self.output_dir,
                                             f'{prefix}rxHorizontalCrosspol'
-                                            f'.{ext}')
+                                            f'{suffix}.{ext}')
             self.save_lut(f'{metadata_path}/calibrationInformation/'
                           'crosstalk/rxHorizontalCrosspol')
 
             self.output_file = os.path.join(self.output_dir,
                                             f'{prefix}txHorizontalCrosspol'
-                                            f'.{ext}')
+                                            f'{suffix}.{ext}')
             self.save_lut(f'{metadata_path}/calibrationInformation/'
                           'crosstalk/txHorizontalCrosspol')
 
             self.output_file = os.path.join(self.output_dir,
                                             f'{prefix}rxVerticalCrosspol'
-                                            f'.{ext}')
+                                            f'{suffix}.{ext}')
             self.save_lut(f'{metadata_path}/calibrationInformation/'
                           'crosstalk/rxVerticalCrosspol')
 
             self.output_file = os.path.join(self.output_dir,
                                             f'{prefix}txVerticalCrosspol'
-                                            f'.{ext}')
+                                            f'{suffix}.{ext}')
             self.save_lut(f'{metadata_path}/calibrationInformation/'
                           'crosstalk/txVerticalCrosspol')
 
             self.output_file = os.path.join(self.output_dir,
-                                            f'{prefix}_data'
-                                            f'.{ext}')
+                                            f'{prefix}data'
+                                            f'{suffix}.{ext}')
             self.save_data()
 
         elif self.mask_file:

@@ -119,9 +119,8 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
             self.print('Operation cancelled.', 1)
             return
 
-        ret_dict = self._get_input_raster_from_nisar_slc(
-            self.input_raster)
-        input_raster = ret_dict['input_raster']
+        input_raster = self.get_input_raster_from_nisar_slc()
+
         input_raster_obj = plant_isce3.get_isce3_raster(input_raster)
 
         ret_dict = self.load_product()

@@ -29,6 +29,7 @@ def get_parser():
     plant_isce3.add_arguments(parser,
                               abs_cal_factor=1,
                               burst_ids=1,
+                              frequency=1,
                               geocode_cov_options=1,
                               epsg=1,
                               input_raster=1,
@@ -191,11 +192,36 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
                 flag_transform_input_raster=self.flag_transform_input_raster)
 
         else:
-            ret_dict = self._get_input_raster_from_nisar_slc(
-                self.input_raster, plant_product_obj)
-            input_raster = ret_dict['input_raster']
+            input_raster = self.get_input_raster_from_nisar_slc(
+                plant_product_obj=plant_product_obj)
+
         input_raster_obj = plant_isce3.get_isce3_raster(input_raster)
         print('*** input_raster_obj.nbands:', input_raster_obj.num_bands)
+
+        if abs(input_raster_obj.length - radar_grid.length) > 1:
+            self.print('ERROR input raster length'
+                       f' ({input_raster_obj.length}) differs from'
+                       f' input radar grid length ({radar_grid.length}).'
+                       ' Adjusting radar grid length')
+            return
+        elif abs(input_raster_obj.length - radar_grid.length) == 1:
+            self.print('WARNING input raster length'
+                       f' ({input_raster_obj.length}) differs from'
+                       f' input radar grid length ({radar_grid.length})')
+            radar_grid.length = input_raster_obj.length
+
+        if abs(input_raster_obj.width - radar_grid.width) > 1:
+            self.print('ERROR input raster width'
+                       f' ({input_raster_obj.width}) differs from'
+                       f' input radar grid width ({radar_grid.width})')
+            return
+        elif abs(input_raster_obj.width - radar_grid.width) == 1:
+            self.print('*** WARNING input raster width'
+                       f' ({input_raster_obj.width}) differs from'
+                       f' input radar grid width ({radar_grid.width}).'
+                       ' Adjusting radar grid width')
+            radar_grid.width = input_raster_obj.width
+
         ellipsoid = isce3.core.Ellipsoid()
 
         input_dtype = input_raster_obj.datatype()
@@ -287,7 +313,8 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         if self.geogrid_upsampling is None:
             self.geogrid_upsampling = 1
 
-        self.output_format = plant.get_output_format(self.output_file)
+        isce3_temporary_format = self.get_isce3_temporary_format(
+            self.output_file)
 
         output_raster_obj = plant_isce3.get_isce3_raster(
             self.output_file,
@@ -295,7 +322,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
             self.plant_geogrid_obj.length,
             nbands,
             output_dtype,
-            self.output_format)
+            isce3_temporary_format)
 
         out_off_diag_terms_obj = None
         if self.out_off_diag_terms or self.covariance_matrix:
@@ -395,51 +422,67 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
             self.output_mode_area_gamma_naught or
             self.output_mode_interp_gamma_naught)
 
-        if flag_rtc_bilinear_distribution:
-            kwargs['rtc_algorithm'] = \
-                isce3.geometry.RtcAlgorithm.RTC_BILINEAR_DISTRIBUTION
-        elif flag_rtc_area_proj:
-            kwargs['rtc_algorithm'] = \
-                isce3.geometry.RtcAlgorithm.RTC_AREA_PROJECTION
-        else:
-            kwargs['rtc_algorithm'] = \
-                isce3.geometry.RtcAlgorithm.RTC_AREA_PROJECTION
+        flag_apply_rtc = (flag_rtc_bilinear_distribution or
+                          flag_rtc_area_proj)
 
-        flag_output_terrain_radimetry_is_sigma = \
-            (self.output_terrain_radiometry is not None and
-             'sigma' in self.output_terrain_radiometry.lower())
+        self.print('radiometric terrain correction (RTC) enabled:'
+                   f' {flag_apply_rtc}')
 
-        if (out_geo_rtc_gamma0_to_sigma0_obj and
-                flag_output_terrain_radimetry_is_sigma):
-            self.print('ERROR RTC ANF from gamma0 to sigma0 is not implemented'
-                       ' for output terrain radiometry as sigma0')
-            return
+        kwargs['flag_apply_rtc'] = flag_apply_rtc
 
-        if flag_output_terrain_radimetry_is_sigma:
-            print('## output terrain radiometry convention: sigma-0')
-            kwargs['output_terrain_radiometry'] = \
-                isce3.geometry.RtcOutputTerrainRadiometry.SIGMA_NAUGHT
-        else:
-            print('## output terrain radiometry convention: gamma-0')
-            kwargs['output_terrain_radiometry'] = \
-                isce3.geometry.RtcOutputTerrainRadiometry.GAMMA_NAUGHT
+        input_rtc_obj = None
 
-        flag_input_terrain_radiometry_is_sigma = \
-            (self.input_terrain_radiometry is not None and
-             'sigma' in self.input_terrain_radiometry)
+        if flag_apply_rtc:
+            if flag_rtc_bilinear_distribution:
+                kwargs['rtc_algorithm'] = \
+                    isce3.geometry.RtcAlgorithm.RTC_BILINEAR_DISTRIBUTION
+            elif flag_rtc_area_proj:
+                kwargs['rtc_algorithm'] = \
+                    isce3.geometry.RtcAlgorithm.RTC_AREA_PROJECTION
+            else:
+                kwargs['rtc_algorithm'] = \
+                    isce3.geometry.RtcAlgorithm.RTC_AREA_PROJECTION
 
-        if flag_input_terrain_radiometry_is_sigma:
-            print('## input terrain radiometry convention: sigma-0'
-                  ' (ellipsoid)')
-            kwargs['input_terrain_radiometry'] = \
-                isce3.geometry.RtcInputTerrainRadiometry.SIGMA_NAUGHT_ELLIPSOID
-        else:
-            print('## input terrain radiometry convention: beta-0')
-            kwargs['input_terrain_radiometry'] = \
-                isce3.geometry.RtcInputTerrainRadiometry.BETA_NAUGHT
+            flag_output_terrain_radimetry_is_sigma = \
+                (self.output_terrain_radiometry is not None and
+                 'sigma' in self.output_terrain_radiometry.lower())
 
-        if self.rtc_min_value_db is not None and self.rtc_min_value_db != -1:
-            kwargs['rtc_min_value_db'] = self.rtc_min_value_db
+            if (out_geo_rtc_gamma0_to_sigma0_obj and
+                    flag_output_terrain_radimetry_is_sigma):
+                self.print('ERROR RTC ANF from gamma0 to sigma0 is not'
+                           ' implemented for output terrain radiometry as'
+                           ' sigma0')
+                return
+
+            if flag_output_terrain_radimetry_is_sigma:
+                print('## output terrain radiometry convention: sigma-0')
+                kwargs['output_terrain_radiometry'] = \
+                    isce3.geometry.RtcOutputTerrainRadiometry.SIGMA_NAUGHT
+            else:
+                print('## output terrain radiometry convention: gamma-0')
+                kwargs['output_terrain_radiometry'] = \
+                    isce3.geometry.RtcOutputTerrainRadiometry.GAMMA_NAUGHT
+
+            flag_input_terrain_radiometry_is_sigma = \
+                (self.input_terrain_radiometry is not None and
+                 'sigma' in self.input_terrain_radiometry)
+
+            if flag_input_terrain_radiometry_is_sigma:
+                print('## input terrain radiometry convention: sigma-0'
+                      ' (ellipsoid)')
+                kwargs['input_terrain_radiometry'] = \
+                    isce3.geometry.RtcInputTerrainRadiometry.SIGMA_NAUGHT_ELLIPSOID
+            else:
+                print('## input terrain radiometry convention: beta-0')
+                kwargs['input_terrain_radiometry'] = \
+                    isce3.geometry.RtcInputTerrainRadiometry.BETA_NAUGHT
+
+            if self.rtc_min_value_db is not None and self.rtc_min_value_db != -1:
+                kwargs['rtc_min_value_db'] = self.rtc_min_value_db
+
+            if self.input_rtc:
+                print(f'input RTC: {self.input_rtc}')
+                input_rtc_obj = plant_isce3.get_isce3_raster(self.input_rtc)
 
         if self.nlooks_az is not None or self.nlooks_rg is not None:
             if self.nlooks_az is not None:
@@ -470,12 +513,6 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         if out_off_diag_terms_obj is not None:
             kwargs['out_off_diag_terms'] = out_off_diag_terms_obj
 
-        if self.input_rtc:
-            print(f'input RTC: {self.input_rtc}')
-            input_rtc_obj = plant_isce3.get_isce3_raster(self.input_rtc)
-        else:
-            input_rtc_obj = None
-
         flag_geocode_interp = (self.output_mode_interp or
                                self.output_mode_interp_gamma_naught)
 
@@ -488,9 +525,6 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         else:
             kwargs['output_mode'] = \
                 isce3.geocode.GeocodeOutputMode.INTERP
-
-        kwargs['flag_apply_rtc'] = (flag_rtc_bilinear_distribution or
-                                    flag_rtc_area_proj)
 
         if self.flag_compute_stats:
             kwargs['compute_stats'] = self.flag_compute_stats
@@ -582,21 +616,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         if self.covariance_matrix:
             self._generate_cov_matrix(frequency_str)
 
-        for output_file in ret_dict.values():
-
-            expected_output_format = plant.get_output_format(output_file)
-            image_obj = plant.read_image(output_file)
-            actual_output_format = image_obj.file_format
-            if expected_output_format == actual_output_format:
-                continue
-            plant.util(output_file, output_file=output_file,
-                       output_format=expected_output_format,
-                       force=True)
-            if actual_output_format != 'ENVI':
-                continue
-            envi_header = plant.get_envi_header(output_file)
-            if os.path.isfile(envi_header):
-                os.remove(envi_header)
+        self.update_output_format(ret_dict)
 
         return self.output_file
 
@@ -743,158 +763,6 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
                                 width=width,
                                 length=length,
                                 force=self.force)
-
-    def _symmetrize_cross_pols(self, hv_ref, vh_ref):
-        print(f'Symmetrizing: {hv_ref} and {vh_ref}')
-        hv_raster_obj = plant_isce3.get_isce3_raster(hv_ref)
-        vh_raster_obj = plant_isce3.get_isce3_raster(vh_ref)
-        width = hv_raster_obj.width
-        length = hv_raster_obj.length
-        gdal_dtype = hv_raster_obj.datatype()
-        temp_symmetrized_file = plant.get_temporary_file(
-            append=True, suffix='_symmetrized', ext='tif')
-        print('*** temporary symmetrized file:'
-              f' {temp_symmetrized_file}')
-        symmetrized_hv_raster_obj = self._create_output_raster(
-            temp_symmetrized_file, nbands=1, gdal_dtype=gdal_dtype,
-            width=width, length=length)
-        isce3.polsar.symmetrize_cross_pol_channels(
-            hv_raster_obj, vh_raster_obj, symmetrized_hv_raster_obj)
-        del symmetrized_hv_raster_obj
-        return temp_symmetrized_file
-
-    def _get_symmetrized_input_raster(self, image_obj, temp_file,
-                                      temp_symmetrized_file,
-                                      hv_band=None, vh_band=None,
-                                      output_format=None):
-        with plant.PlantIndent():
-            output_band = 0
-            for b in range(image_obj.nbands):
-                band = image_obj.get_band(band=b)
-                if (self.flag_symmetrize and
-                        ((vh_band is not None and vh_band == b) or
-                         (band.name is not None and
-                          band.name.upper() == 'VH'))):
-                    print('*** skipping VH')
-                    continue
-                if (self.flag_symmetrize and
-                        ((hv_band is not None and hv_band == b) or
-                         (band.name is not None and
-                          band.name.upper() == 'HV'))):
-                    symmetrized_hv_obj = self.read_image(temp_symmetrized_file)
-                    symmetrized_band = symmetrized_hv_obj.band
-                    image_obj.set_band(symmetrized_band, band=output_band)
-
-                    output_band += 1
-                    print('*** skipping HV')
-                    print('*** reading symmetrized HV')
-                    continue
-                print(f'*** adding {band} to VRT file')
-                image_obj.set_band(band, band=output_band)
-                output_band += 1
-            if self.flag_symmetrize:
-                image_obj.set_nbands(image_obj.nbands - 1,
-                                     realize_changes=False)
-            self.save_image(image_obj, temp_file, force=True,
-                            output_format=output_format)
-
-    def _get_input_raster_from_nisar_slc(self, input_raster,
-                                         plant_product_obj):
-
-        if input_raster is not None:
-            if self.flag_transform_input_raster is not False:
-                flag_apply_transformation = \
-                    self.plant_transform_obj.flag_apply_transformation()
-                image_obj = self.read_image(input_raster)
-            else:
-                flag_apply_transformation = False
-                image_obj = plant.read_image(input_raster)
-            if flag_apply_transformation:
-                temp_file = plant.get_temporary_file(append=True,
-                                                     ext='vrt')
-
-                for b in range(image_obj.nbands):
-                    band = image_obj.get_band(band=b)
-                    image_obj.set_band(band, band=b)
-                self.print(f'*** creating temporary file: {temp_file}')
-                self.save_image(image_obj, temp_file, force=True,
-                                output_format='VRT')
-                input_raster = temp_file
-
-            if self.flag_symmetrize and self.symmetrize_bands is None:
-                self.print('ERROR symmetrization option with input raster'
-                           ' requires the parameter --symmetrize-bands')
-                return
-            elif self.flag_symmetrize:
-                hv_band = self.symmetrize_bands[0]
-                vh_band = self.symmetrize_bands[1]
-
-                hv_obj = plant.read_image(input_raster, band=hv_band)
-                temp_hv_file = plant.get_temporary_file(
-                    append=True, suffix='_hv', ext='vrt')
-                plant.save_image(hv_obj, temp_hv_file, force=True,
-                                 output_format='VRT')
-
-                vh_obj = plant.read_image(input_raster, band=vh_band)
-                temp_vh_file = plant.get_temporary_file(
-                    append=True, suffix='_vh', ext='vrt')
-                plant.save_image(vh_obj, temp_vh_file, force=True,
-                                 output_format='VRT')
-
-                temp_symmetrized_file = self._symmetrize_cross_pols(
-                    temp_hv_file, temp_vh_file)
-
-                temp_file = plant.get_temporary_file(
-                    append=True, suffix='_input_raster_symmerized', ext='tif')
-                image_obj = self.read_image(input_raster)
-
-                self._get_symmetrized_input_raster(
-                    image_obj, temp_file, temp_symmetrized_file,
-                    hv_band=hv_band, vh_band=vh_band,
-                    output_format='TIFF')
-                input_raster = temp_file
-
-        else:
-
-            frequency_str = plant_product_obj.get_frequency_str()
-            if self.flag_symmetrize:
-                freq_group = ('//science/LSAR/RSLC/swaths/'
-                              f'frequency{frequency_str}')
-                hv_ref = f'HDF5:{self.input_file}:{freq_group}/HV'
-                vh_ref = f'HDF5:{self.input_file}:{freq_group}/VH'
-                flag_error = False
-                try:
-                    temp_symmetrized_file = self._symmetrize_cross_pols(
-                        hv_ref, vh_ref)
-                except BaseException:
-                    flag_error = True
-
-                if flag_error:
-                    freq_group = ('//science/LSAR/SLC/swaths/'
-                                  f'frequency{frequency_str}')
-                    hv_ref = f'HDF5:{self.input_file}:{freq_group}/HV'
-                    vh_ref = f'HDF5:{self.input_file}:{freq_group}/VH'
-                    temp_symmetrized_file = self._symmetrize_cross_pols(
-                        hv_ref, vh_ref)
-
-            else:
-                temp_symmetrized_file = None
-
-            raster_file = f'NISAR:{self.input_file}:{frequency_str}'
-            temp_file = plant.get_temporary_file(append=True,
-                                                 ext='vrt')
-            self.print(f'*** creating temporary file: {temp_file}')
-            image_obj = self.read_image(raster_file)
-
-            self._get_symmetrized_input_raster(
-                image_obj, temp_file, temp_symmetrized_file,
-                output_format='VRT')
-            input_raster = temp_file
-
-        ret_dict = {}
-        ret_dict['input_raster'] = input_raster
-        ret_dict['image_obj'] = image_obj
-        return ret_dict
 
 
 def main(argv=None):
