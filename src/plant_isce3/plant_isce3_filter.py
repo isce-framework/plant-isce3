@@ -123,12 +123,13 @@ class PlantIsce3Filter(plant_isce3.PlantIsce3Script):
         plant_isce3.multilook_isce3(input_raster, self.output_file,
                                     self.nlooks_az, self.nlooks_rg,
                                     transform_square=self.transform_square,
+                                    output_format=self.output_format,
                                     block_nlines=self.block_nlines)
 
         ret_dict = {}
         ret_dict['output_file'] = self.output_file
         plant.append_output_file(self.output_file)
-        self.update_output_format(ret_dict)
+        plant_isce3.update_output_format(ret_dict)
 
         return self.output_file
 

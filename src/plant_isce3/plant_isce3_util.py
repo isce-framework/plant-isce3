@@ -677,6 +677,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             temp_file = plant.get_temporary_file(ext='.tif', append=True)
             plant_isce3.multilook_isce3(image_ref,
                                         output_file=temp_file,
+                                        output_format=self.output_format,
                                         nlooks_y=self.nlooks_az,
                                         nlooks_x=self.nlooks_rg)
 

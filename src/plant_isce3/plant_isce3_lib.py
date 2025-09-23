@@ -460,9 +460,16 @@ def multilook_isce3(input_raster_file, output_file,
                     nlooks_y, nlooks_x,
                     transform_square=False,
                     block_nlines=4096,
+                    output_format=None,
                     verbose=True):
 
     input_raster = isce3.io.Raster(input_raster_file)
+
+    if nlooks_y is None:
+        nlooks_y = 1
+
+    if nlooks_x is None:
+        nlooks_x = 1
 
     width_ml = int(input_raster.width // nlooks_x)
     length_ml = int(input_raster.length // nlooks_y)
@@ -478,13 +485,17 @@ def multilook_isce3(input_raster_file, output_file,
         os.makedirs(output_dir)
 
     nbands = input_raster.num_bands
+
+    isce3_format = get_isce3_temporary_format(output_file,
+                                              output_format=output_format)
+
     output_raster = isce3.io.Raster(output_file,
 
                                     width_ml,
                                     length_ml,
                                     nbands,
                                     output_dtype,
-                                    "GTiff")
+                                    isce3_format)
 
     if verbose:
         print('block number of lines:', block_nlines)
@@ -518,9 +529,13 @@ def multilook_isce3(input_raster_file, output_file,
                 if exponent > 1:
                     block_array = np.absolute(block_array) ** 2
 
-                multilooked_image = isce3.signal.multilook_nodata(
-                    block_array,
-                    int(nlooks_y), int(nlooks_x), np.nan)
+                if nlooks_y == 1 and nlooks_x == 1:
+                    multilooked_image = block_array
+
+                else:
+                    multilooked_image = isce3.signal.multilook_nodata(
+                        block_array,
+                        int(nlooks_y), int(nlooks_x), np.nan)
 
                 start_line_ml = int(start_line // nlooks_y)
                 end_line_ml = int(end_line // nlooks_y)
@@ -613,6 +628,53 @@ def get_attribute(attribute_name, precedence_value, plant_script_obj):
         return precedence_value
 
     return getattr(plant_script_obj, attribute_name, None)
+
+
+def get_isce3_temporary_format(output_file, output_format=None):
+
+    if output_format is not None and 'tif' in output_format.lower():
+        output_format = 'GTiff'
+        if output_format in plant.OUTPUT_FORMAT_MAP.keys():
+            output_format = plant.OUTPUT_FORMAT_MAP[output_format]
+        return output_format
+
+    if not output_file:
+        return DEFAULT_ISCE3_TEMPORARY_FORMAT
+
+    _, extension = os.path.splitext(output_file)
+
+    extension = extension.lower()
+    if extension and extension.startswith('.'):
+        extension = extension[1:]
+    if (extension == 'tif' or extension == 'tiff'):
+        output_format = 'GTiff'
+    elif (extension == 'bin'):
+        output_format = 'ENVI'
+
+    else:
+        output_format = DEFAULT_ISCE3_TEMPORARY_FORMAT
+    if output_format in plant.OUTPUT_FORMAT_MAP.keys():
+        output_format = plant.OUTPUT_FORMAT_MAP[output_format]
+    return output_format
+
+
+def update_output_format(ret_dict):
+    for output_file in ret_dict.values():
+
+        expected_output_format = plant.get_output_format(
+            output_file)
+        image_obj = plant.read_image(output_file)
+        actual_output_format = image_obj.file_format
+        if expected_output_format == actual_output_format:
+            continue
+        plant.util(output_file, output_file=output_file,
+                   output_format=expected_output_format,
+                   force=True)
+        if actual_output_format != 'ENVI':
+            continue
+        envi_header = plant.get_envi_header(output_file)
+        if os.path.isfile(envi_header):
+            os.remove(envi_header)
 
 
 class PlantIsce3Sensor():
@@ -1371,51 +1433,6 @@ class PlantIsce3Script(plant.PlantScript):
 
         return geogrid
 
-    def get_isce3_temporary_format(self, output_file, output_format=None):
-
-        if output_format is not None and 'tif' in output_format.lower():
-            output_format = 'GTiff'
-            if output_format in plant.OUTPUT_FORMAT_MAP.keys():
-                output_format = plant.OUTPUT_FORMAT_MAP[output_format]
-            return output_format
-
-        if not output_file:
-            return DEFAULT_ISCE3_TEMPORARY_FORMAT
-
-        filename, extension = os.path.splitext(output_file)
-
-        extension = extension.lower()
-        if extension and extension.startswith('.'):
-            extension = extension[1:]
-        if (extension == 'tif' or extension == 'tiff'):
-            output_format = 'GTiff'
-        elif (extension == 'bin'):
-            output_format = 'ENVI'
-
-        else:
-            output_format = DEFAULT_ISCE3_TEMPORARY_FORMAT
-        if output_format in plant.OUTPUT_FORMAT_MAP.keys():
-            output_format = plant.OUTPUT_FORMAT_MAP[output_format]
-        return output_format
-
-    def update_output_format(self, ret_dict):
-        for output_file in ret_dict.values():
-
-            expected_output_format = plant.get_output_format(
-                output_file)
-            image_obj = plant.read_image(output_file)
-            actual_output_format = image_obj.file_format
-            if expected_output_format == actual_output_format:
-                continue
-            plant.util(output_file, output_file=output_file,
-                       output_format=expected_output_format,
-                       force=True)
-            if actual_output_format != 'ENVI':
-                continue
-            envi_header = plant.get_envi_header(output_file)
-            if os.path.isfile(envi_header):
-                os.remove(envi_header)
-
     def _create_output_raster(self, filename, nbands=1,
                               gdal_dtype=gdal.GDT_Float32,
                               width=None, length=None):
@@ -1432,7 +1449,7 @@ class PlantIsce3Script(plant.PlantScript):
         if output_dir and not os.path.isdir(output_dir):
             os.makedirs(output_dir)
 
-        output_format = self.get_isce3_temporary_format(filename)
+        output_format = plant_isce3.get_isce3_temporary_format(filename)
 
         print(f'creating file: {filename}')
 
