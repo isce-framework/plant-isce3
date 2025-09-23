@@ -69,11 +69,19 @@ def get_parser():
                        help=("Extract the runconfig used to generate the"
                              " product from its metadata."))
 
-    group.add_argument(
-        '--all-layers',
-        dest='all_layers',
-        action='store_true',
-        help=("All layers (only available for NISAR L2 products)"))
+    group.add_argument('--all-layers',
+                       '--save-all-layers',
+                       dest='flag_all_layers',
+                       action='store_true',
+                       help=('Save all layers (only available for NISAR L2'
+                             ' products)'))
+
+    group.add_argument('--all-secondary-layers',
+                       '--save-all-secondary-layers',
+                       dest='flag_all_secondary_layers',
+                       action='store_true',
+                       help=('Save all secondary layers (only available for'
+                             ' NISAR L2 products)'))
 
     group.add_argument('--data',
                        '--images',
@@ -287,7 +295,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
     def run_nisar_as_input(self, plant_product_obj):
         nisar_product_obj = open_product(self.input_file)
 
-        if self.all_layers:
+        if self.flag_all_layers or self.flag_all_secondary_layers:
             if self.frequency is not None:
 
                 self.nlooks_az, self.nlooks_rg = \
@@ -489,10 +497,11 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         self.save_lut(f'{metadata_path}/processingInformation/'
                       'parameters/referenceTerrainHeight')
 
-        self.output_file = os.path.join(self.output_dir,
-                                        f'{prefix}data'
-                                        f'{suffix}.{ext}')
-        self.save_data(plant_product_obj)
+        if self.flag_all_layers:
+            self.output_file = os.path.join(self.output_dir,
+                                            f'{prefix}data'
+                                            f'{suffix}.{ext}')
+            self.save_data(plant_product_obj)
 
     def run_raster_as_input(self):
         image_obj = plant.read_image(self.input_file)
