@@ -313,7 +313,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         if self.geogrid_upsampling is None:
             self.geogrid_upsampling = 1
 
-        isce3_temporary_format = self.get_isce3_temporary_format(
+        isce3_temporary_format = plant_isce3.get_isce3_temporary_format(
             self.output_file)
 
         output_raster_obj = plant_isce3.get_isce3_raster(
@@ -616,7 +616,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         if self.covariance_matrix:
             self._generate_cov_matrix(frequency_str)
 
-        self.update_output_format(ret_dict)
+        plant_isce3.update_output_format(ret_dict)
 
         return self.output_file
 
