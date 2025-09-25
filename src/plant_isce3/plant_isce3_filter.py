@@ -95,7 +95,7 @@ class PlantIsce3Filter(plant_isce3.PlantIsce3Script):
     def run(self):
 
         if not self.output_ext:
-            self.output_ext = 'tif'
+            self.output_ext = '.tif'
 
         if self.separate_pol or self.separate_freq:
 
