@@ -299,7 +299,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             if self.frequency is not None:
 
                 self.nlooks_az, self.nlooks_rg = \
-                    self._get_nlooks(self.frequency)
+                    self.get_nlooks(self.frequency)
 
                 suffix = f'_freq_{self.frequency.lower()}'
 
@@ -377,24 +377,6 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                     print('done')
 
             print(f'# file saved: {self.output_file}')
-
-    def _get_nlooks(self, freq):
-        freq_lower = freq.lower()
-        if self.getattr2(f'nlooks_y_{freq_lower}') is not None:
-            nlooks_y = self.getattr2(f'nlooks_y_{freq_lower}')
-        elif self.getattr2('nlooks_y') is not None:
-            nlooks_y = self.getattr2('nlooks_y')
-        else:
-            nlooks_y = 1
-
-        if self.getattr2(f'nlooks_x_{freq_lower}') is not None:
-            nlooks_x = self.getattr2(f'nlooks_x_{freq_lower}')
-        elif self.getattr2('nlooks_x') is not None:
-            nlooks_x = self.getattr2('nlooks_x')
-        else:
-            nlooks_x = 1
-
-        return nlooks_y, nlooks_x
 
     def save_all_layers(self, nisar_product_obj, plant_product_obj,
                         suffix=''):

@@ -616,7 +616,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         if self.covariance_matrix:
             self._generate_cov_matrix(frequency_str)
 
-        plant_isce3.update_output_format(ret_dict)
+        self.update_output_format(ret_dict)
 
         return self.output_file
 
