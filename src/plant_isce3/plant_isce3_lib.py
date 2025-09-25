@@ -461,6 +461,7 @@ def multilook_isce3(input_raster_file, output_file,
                     transform_square=False,
                     block_nlines=4096,
                     output_format=None,
+                    metadata_dict=None,
                     verbose=True):
 
     input_raster = isce3.io.Raster(input_raster_file)
@@ -571,6 +572,10 @@ def multilook_isce3(input_raster_file, output_file,
     output_gdal_ds = gdal.Open(output_file, gdal.GA_Update)
     output_gdal_ds.SetGeoTransform(geotransform)
     output_gdal_ds.SetProjection(projection)
+
+    if metadata_dict is not None:
+        output_gdal_ds.SetMetadata(metadata_dict)
+
     output_gdal_ds.FlushCache()
     output_gdal_ds.Close()
 
@@ -656,25 +661,6 @@ def get_isce3_temporary_format(output_file, output_format=None):
     if output_format in plant.OUTPUT_FORMAT_MAP.keys():
         output_format = plant.OUTPUT_FORMAT_MAP[output_format]
     return output_format
-
-
-def update_output_format(ret_dict):
-    for output_file in ret_dict.values():
-
-        expected_output_format = plant.get_output_format(
-            output_file)
-        image_obj = plant.read_image(output_file)
-        actual_output_format = image_obj.file_format
-        if expected_output_format == actual_output_format:
-            continue
-        plant.util(output_file, output_file=output_file,
-                   output_format=expected_output_format,
-                   force=True)
-        if actual_output_format != 'ENVI':
-            continue
-        envi_header = plant.get_envi_header(output_file)
-        if os.path.isfile(envi_header):
-            os.remove(envi_header)
 
 
 class PlantIsce3Sensor():
@@ -903,20 +889,23 @@ class PlantIsce3Sensor():
 
         print(f'ERROR sensor not supported: {self.sensor_name}')
 
-    def get_radar_grid(self):
+    def get_radar_grid(self, frequency=None):
         if self.sensor_name == 'NISAR':
+            if frequency is None:
+                frequency = self.get_frequency_str()
             return self.nisar_product_obj.getRadarGrid(
-                self.frequency)
+                frequency)
 
         if self.sensor_name == 'Sentinel-1':
             return self.burst.as_isce3_radargrid()
 
         print(f'ERROR sensor not supported: {self.sensor_name}')
 
-    def get_radar_grid_ml(self):
+    def get_radar_grid_ml(self, frequency=None):
         radar_grid = self.get_radar_grid()
 
-        radar_grid_ml = self.plant_script_obj.get_radar_grid_ml(radar_grid)
+        radar_grid_ml = self.plant_script_obj.get_radar_grid_ml(
+            radar_grid, frequency=frequency)
 
         return radar_grid_ml
 
@@ -1159,6 +1148,32 @@ class PlantIsce3Script(plant.PlantScript):
     def load_product(self, verbose=True):
 
         return PlantIsce3Sensor(plant_script_obj=self, verbose=verbose)
+
+    def update_output_format(self, ret_dict):
+        for output_file in ret_dict.values():
+
+            image_obj = plant.read_image(output_file)
+            actual_output_format = image_obj.file_format
+
+            if self.getattr2('output_format') is None:
+
+                expected_output_format = plant.get_output_format(
+                    output_file)
+                if expected_output_format == actual_output_format:
+                    continue
+
+            self.save_image(
+                output_file,
+                output_file=output_file,
+
+                force=True)
+
+            if actual_output_format != 'ENVI':
+                continue
+
+            envi_header = plant.get_envi_header(output_file)
+            if os.path.isfile(envi_header):
+                os.remove(envi_header)
 
     def update_geogrid(self, radar_grid, dem_raster=None, geo=None,
                        nisar_product_obj=None, orbit=None):
@@ -1534,6 +1549,32 @@ class PlantIsce3Script(plant.PlantScript):
 
         return input_raster
 
+    def get_nlooks(self, frequency=None):
+
+        if frequency is None:
+            frequency = self.get_frequency_str()
+
+        if frequency is not None:
+            frequency_lower = frequency.lower()
+
+        if (frequency is not None and
+                self.getattr2(f'nlooks_y_{frequency_lower}') is not None):
+            nlooks_y = self.getattr2(f'nlooks_y_{frequency_lower}')
+        elif self.getattr2('nlooks_y') is not None:
+            nlooks_y = self.getattr2('nlooks_y')
+        else:
+            nlooks_y = 1
+
+        if (frequency is not None and
+                self.getattr2(f'nlooks_x_{frequency_lower}') is not None):
+            nlooks_x = self.getattr2(f'nlooks_x_{frequency_lower}')
+        elif self.getattr2('nlooks_x') is not None:
+            nlooks_x = self.getattr2('nlooks_x')
+        else:
+            nlooks_x = 1
+
+        return nlooks_y, nlooks_x
+
     def _get_input_raster_from_nisar_slc(self, input_raster=None,
                                          input_file=None,
                                          plant_product_obj=None):
@@ -1636,19 +1677,9 @@ class PlantIsce3Script(plant.PlantScript):
                 output_format='VRT')
             input_raster = temp_file
 
-        if ((getattr(self, 'nlooks_az', None) is not None
-             and self.nlooks_az > 1) or
-                (getattr(self, 'nlooks_rg', None) is not None and
-                 self.nlooks_rg > 1)):
+        nlooks_y, nlooks_x = self.get_nlooks(frequency_str)
 
-            if getattr(self, 'nlooks_az', None) is None:
-                nlooks_az = 1
-            else:
-                nlooks_az = self.nlooks_az
-            if getattr(self, 'nlooks_rg', None) is None:
-                nlooks_rg = 1
-            else:
-                nlooks_rg = self.nlooks_rg
+        if nlooks_y > 1 or nlooks_x > 1:
 
             self.print('multilooking input file')
             dtype_str = plant.get_dtype_name(image_obj.dtype)
@@ -1664,8 +1695,8 @@ class PlantIsce3Script(plant.PlantScript):
                 exponent = 1
 
             self.print('exponent:', exponent)
-            self.print(f'number of looks: {nlooks_az} (az) x'
-                       f' {nlooks_rg} (rg)')
+            self.print(f'number of looks: {nlooks_y} (az) x'
+                       f' {nlooks_x} (rg)')
             self.print(f'original: {image_obj.length} (length) x'
                        f' {image_obj.width} (width)')
 
@@ -1674,8 +1705,8 @@ class PlantIsce3Script(plant.PlantScript):
 
             plant_isce3.multilook_isce3(input_raster,
                                         output_file=temp_file,
-                                        nlooks_y=nlooks_az,
-                                        nlooks_x=nlooks_rg,
+                                        nlooks_y=nlooks_y,
+                                        nlooks_x=nlooks_x,
 
                                         **filter_kwargs)
 
@@ -1688,7 +1719,18 @@ class PlantIsce3Script(plant.PlantScript):
 
         return input_raster
 
-    def get_radar_grid_ml(self, radar_grid):
+    def get_frequency_str(self):
+
+        frequency = self.getattr2(self.plant_script_obj, 'frequency')
+        if frequency is not None:
+            return frequency
+
+        frequency_str = list(
+            self.nisar_product_obj.polarizations.keys())[0]
+
+        return frequency_str
+
+    def get_radar_grid_ml(self, radar_grid, frequency=None):
 
         if self.select_row is not None or self.select_col is not None:
             self.plant_transform_obj.update_crop_window(
@@ -1709,26 +1751,15 @@ class PlantIsce3Script(plant.PlantScript):
             radar_grid = radar_grid.offset_and_resize(
                 y0, x0, length, width)
 
-        if ((getattr(self, 'nlooks_az', None) is not None
-             and self.nlooks_az > 1) or
-                (getattr(self, 'nlooks_rg', None) is not None and
-                 self.nlooks_rg > 1)):
+        nlooks_y, nlooks_x = self.get_nlooks(frequency=frequency)
 
-            if getattr(self, 'nlooks_az', None) is None:
-                nlooks_az = 1
-            else:
-                nlooks_az = self.nlooks_az
-            if getattr(self, 'nlooks_rg', None) is None:
-                nlooks_rg = 1
-            else:
-                nlooks_rg = self.nlooks_rg
+        if nlooks_y > 1 or nlooks_x > 1:
 
             self.print('multilooking radar grid')
-            radar_grid_ml = radar_grid.multilook(nlooks_az,
-                                                 nlooks_rg)
+            radar_grid_ml = radar_grid.multilook(nlooks_y, nlooks_x)
             with plant.PlantIndent():
-                self.print(f'number of looks: {nlooks_az} (az) x'
-                           f' {nlooks_rg} (rg)')
+                self.print(f'number of looks: {nlooks_y} (az) x'
+                           f' {nlooks_x} (rg)')
                 self.print(f'original: {radar_grid.length} (length) x'
                            f' {radar_grid.width} (width)')
                 self.print(f'multilooked: {radar_grid_ml.length} (length) x'

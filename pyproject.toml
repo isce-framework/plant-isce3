@@ -39,6 +39,7 @@ plant_isce3_util = "plant_isce3.plant_isce3_util:main"
 plant_isce3_filter = "plant_isce3.plant_isce3_filter:main"
 plant_isce3_resample = "plant_isce3.plant_isce3_resample:main"
 plant_isce3_runconfig = "plant_isce3.plant_isce3_runconfig:main"
+plant_isce3_batch_processing = "plant_isce3.plant_isce3_batch_processing:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "plant_isce3.__version__"}
