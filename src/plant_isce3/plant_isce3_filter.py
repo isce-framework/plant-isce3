@@ -125,6 +125,9 @@ class PlantIsce3Filter(plant_isce3.PlantIsce3Script):
             if output_file_orig:
                 self.print(f'## output file template: {output_file_orig}')
 
+            if not self.output_ext.startswith('.'):
+                self.output_ext = f'.{self.output_ext}'
+
             ret_list = []
             for freq, pols in freqs_iterator:
                 if (frequency_orig is not None and
