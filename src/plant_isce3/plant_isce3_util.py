@@ -1030,5 +1030,9 @@ def main(argv=None):
         return ret
 
 
+def main_cli(*args, **kwargs):
+    main(*args, **kwargs)
+
+
 if __name__ == '__main__':
     main()
