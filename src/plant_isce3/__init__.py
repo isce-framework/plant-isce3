@@ -1,8 +1,9 @@
 import sys
 from plant_isce3.plant_isce3_lib import *
 import plant_isce3.plant_isce3_lib
+from . import readers
 
-__version__ = "0.0.9"
+__version__ = "0.1.7"
 
 version = VERSION = __version__
 
@@ -26,10 +27,7 @@ class NameWrapper(object):
             return getattr(self.wrapped, name)
         except AttributeError:
             pass
-        # if name == '__version__':
-        #     return plant.VERSION
-        # if name in alias_dict.keys():
-        #     name = alias_dict[name]
+
         return plant_isce3_lib.ModuleWrapper(name)
 
     def __dir__(self):

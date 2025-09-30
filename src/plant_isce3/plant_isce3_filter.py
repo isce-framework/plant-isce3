@@ -6,9 +6,10 @@ import plant
 import plant_isce3
 
 import numpy as np
-import isce3
 
-from nisar.products.readers import open_product
+import h5py
+
+from plant_isce3.readers import open_product
 
 
 def get_parser():
@@ -229,8 +230,19 @@ class PlantIsce3Filter(plant_isce3.PlantIsce3Script):
         self.plant_transform_obj = None
 
         plant_product_obj = self.load_product()
+        if plant_product_obj.sensor_name != 'NISAR':
+            raise NotImplementedError
+
         input_raster = self.get_input_raster_from_nisar_slc(
             plant_product_obj=plant_product_obj)
+
+        pols = None
+        if self.frequency is not None:
+            pols = plant_product_obj.nisar_product_obj.polarizations[
+                self.frequency]
+            if self.band is not None:
+
+                pols = [pols[b] for b in self.band]
 
         self.nlooks_y = nlooks_y
         self.nlooks_x = nlooks_x
@@ -248,6 +260,21 @@ class PlantIsce3Filter(plant_isce3.PlantIsce3Script):
                 metadata_dict['NLOOKS_X'] = nlooks_x
             if self.output_format is not None:
                 metadata_dict['OUTPUT_FORMAT'] = self.output_format
+            if pols is not None and len(pols) == 1:
+                metadata_dict['POLARIZATION'] = pols[0]
+            else:
+                metadata_dict['POLARIZATIONS'] = pols
+
+            try:
+                bounding_polygon = plant_product_obj.get_h5_dataset(
+                    '/science/LSAR/identification/'
+                    'boundingPolygon')
+                if not isinstance(bounding_polygon, str):
+                    bounding_polygon = bounding_polygon.decode()
+                metadata_dict['BOUNDING_POLYGON'] = bounding_polygon
+            except BaseException:
+                pass
+
         else:
             metadata_dict = None
 
