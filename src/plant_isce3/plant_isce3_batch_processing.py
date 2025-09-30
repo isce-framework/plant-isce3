@@ -4,7 +4,7 @@ import os
 import sys
 import plant
 import plant_isce3
-# import itertools
+
 import numpy as np
 import isce3
 from osgeo import gdal, ogr
@@ -16,36 +16,21 @@ import pickle
 
 import configparser
 
-
-res_deg_dict = {'A': 1.0 / 3600,  # (140 m / 30 m) / 3600  = 4 / 3600
-                'B': 1.0 / 3600}  # (560 m / 30 m) / 3600 ~= 19 / 3600
-
+res_deg_dict = {'A': 1.0 / 3600,
+                'B': 1.0 / 3600}
 
 filter_method = plant_isce3.filter
-# filter_method = plant.filter
-
-'''
-# bucket_name = 'nisar-adt-batch'
-# prefix = 'products/L2_L_GCOV/'
-# prefix = 'gcov/commission_rslc/'
-# prefix = 'gcov/commissioning_rost6f_3/'
-# prefix = 'commissioning/adt-on-demand/products/L2_L_GCOV/2025/09/'
-# prefix = 'commissioning/GSLC/2025/09/16/231725-jeong/'
-# prefix = 'commissioning/adt-on-demand/products/L2_L_GCOV/'
-'''
 
 cog_str = 'COG # resampling_algorithm=average # overviews_list=2,4,8,16,32,64,128'
 
 
 def get_parser():
-    '''
-    Command line parser.
-    '''
+
     descr = ''
     epilog = ''
     parser = plant.argparse(epilog=epilog,
                             description=descr,
-                            input_file=2,  # 2 if required
+                            input_file=2,
                             default_output_options=1,
                             default_flags=1,
                             output_format=1,
@@ -85,7 +70,7 @@ def get_parser():
                         help='Load pickle files (if available)')
 
     parser.add_argument('--skip-step-1-and-load-cogs-from',
-                        # action='store_true',
+
                         type=str,
                         dest='skip_step_1_and_load_cogs_from',
                         help='Skip step 1 and load pre-processed '
@@ -265,32 +250,24 @@ def get_parser():
 class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
     def __init__(self, parser, argv=None):
-        '''
-        class initialization
-        '''
+
         self.replace_null = False
         super().__init__(parser, argv)
 
     def run(self):
-        '''
-        Run batch processing
-        '''
 
         self.print(f'input file: {self.input_file}')
 
         aws_credentials_file = f"{os.path.expanduser('~')}/.aws/credentials"
         gdal.SetConfigOption('AWS_CONFIG_FILE', aws_credentials_file)
 
-        # orbit_pass_direction = 'ASCENDING'
-        # s3_path_list = (['s3:/', bucket_name])
-        # s3_path = '/'.join(s3_path_list)
         input_file_splitted = self.input_file.split('/')
 
         flag_s3_bucket = input_file_splitted[0] == 's3:'
 
         self.print(f'flag s3 bucket: {flag_s3_bucket}')
 
-        if (flag_s3_bucket and len(input_file_splitted) > 1 and 
+        if (flag_s3_bucket and len(input_file_splitted) > 1 and
                 input_file_splitted[1] != ''):
             self.print(f'ERROR invalid s3 path: {input_file_splitted}')
             return
@@ -302,17 +279,16 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             self.print(f's3 prefix: {s3_prefix}')
 
         kwargs_color_orig_dict = {
-                'cmap': self.cmap,
-                # 'cmap_max': self.cmap_max,
-                # 'cmap_min': self.cmap_min,
-                'cmap_crop_min': self.cmap_crop_min,
-                'background_color': self.background_color,
-                'percentile': self.percentile,
-                'flag_add_kmz_cbar_offset': self.flag_add_kmz_cbar_offset,
-                'kmz_cbar_offset_color': self.kmz_cbar_offset_color,
-                'kmz_cbar_offset_length': self.kmz_cbar_offset_length,
-                'kmz_cbar_offset_width': self.kmz_cbar_offset_width,
-                'kmz_cbar_offset_alpha': self.kmz_cbar_offset_alpha
+            'cmap': self.cmap,
+
+            'cmap_crop_min': self.cmap_crop_min,
+            'background_color': self.background_color,
+            'percentile': self.percentile,
+            'flag_add_kmz_cbar_offset': self.flag_add_kmz_cbar_offset,
+            'kmz_cbar_offset_color': self.kmz_cbar_offset_color,
+            'kmz_cbar_offset_length': self.kmz_cbar_offset_length,
+            'kmz_cbar_offset_width': self.kmz_cbar_offset_width,
+            'kmz_cbar_offset_alpha': self.kmz_cbar_offset_alpha
         }
         if self.cmap_min is not None and isinstance(self.cmap_min, list):
             kwargs_color_orig_dict['cmap_min'] = ','.join([
@@ -332,8 +308,6 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 continue
             kwargs_color[k] = v
 
-        # product_count = 0
-
         tiles_map_by_epsg = {}
         bbox_by_epsg = {}
         frequency_epsg_dict_pickle_file = \
@@ -350,7 +324,6 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 self.skip_step_1_and_load_cogs_from, '**', '*.tif')
             file_list = glob.glob(search_pattern,
                                   recursive=True)
-            # files_iterator = [os.path.split(f) for f in file_list]
 
             frequency_epsg_dict = {}
 
@@ -358,7 +331,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 print(f'*** evaluating file {tif_file}')
                 image_obj = plant.read_image(tif_file)
                 metadata = image_obj.metadata
-                # Print the metadata
+
                 frequency = None
                 pol = None
                 for key, value in metadata.items():
@@ -451,18 +424,13 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
                 for epsg, file_list in epsg_dict.items():
 
-                    # pol = ''
-
                     list_of_output_files = []
-
-                    # for epsg, file_list in epsg_dict.items():
 
                     print(f'## Processing EPSG: {epsg} ({len(file_list)})')
 
                     vrt_file = (f'{self.step_3_directory}/EPSG{epsg}{suffix}'
                                 f'{orbit_pass_direction_str}.vrt')
 
-                    # VRT
                     if (self.step_3_generate_vrt and
                             not os.path.isfile(vrt_file)):
                         os.makedirs(self.step_3_directory, exist_ok=True)
@@ -472,7 +440,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                             os.remove(vrt_file)
 
                         gdal.BuildVRT(vrt_file, file_list, srcNodata='nan',
-                                      VRTNodata='nan')  # , resampleAlg='average')
+                                      VRTNodata='nan')
                         print('        file saved:', vrt_file)
                         add_overviews_vrt(vrt_file)
                         print(f'        file updated: {vrt_file}'
@@ -487,8 +455,6 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                               f' "{vrt_file}". Skipping.')
                         continue
 
-                    # min_lon, max_lon, min_lat, max_lat = bbox_by_epsg[epsg]
-
                     if vrt_file is None:
                         continue
 
@@ -498,11 +464,11 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
                 vrt_file = self.run_processing_geographic(
                     tiles_map_by_epsg, bbox_by_epsg, orbit_pass_direction_str,
-                    frequency,  flag_last_pol, suffix_list, suffix_rgb,
+                    frequency, flag_last_pol, suffix_list, suffix_rgb,
                     suffix, list_of_output_files)
 
             if self.step_7_generate_mosaic_kmz:
-                # for pol_count, pol in enumerate(['_HH', '_HV']):
+
                 mosaic_a_vrt_file = (f'{self.step_5_directory}/mosaic_A_{pol}'
                                      f'{orbit_pass_direction_str}.vrt')
                 mosaic_b_vrt_file = (f'{self.step_5_directory}/mosaic_B_{pol}'
@@ -515,70 +481,63 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 print('pol_vrt_list:', vrt_file)
                 self.util(mosaic_a_vrt_file, mosaic_b_vrt_file,
                           output_file=kmz_file, force=True,
-                          # cmap_min=0, ovr=0,
-                          in_null=np.nan)  # , cmap_max=max_v)
+
+                          in_null=np.nan)
 
         print('done')
 
     def run_processing_geographic(
             self, tiles_map_by_epsg, bbox_by_epsg, orbit_pass_direction_str,
-            frequency,  flag_last_pol, suffix_list, suffix_rgb,
+            frequency, flag_last_pol, suffix_list, suffix_rgb,
             suffix, list_of_output_files):
         mosaic_tiles_map = tiles_map_by_epsg['mosaic']
         mosaic_min_lon, mosaic_max_lon, mosaic_min_lat, mosaic_max_lat = \
             bbox_by_epsg['mosaic']
 
         vrt_file = self.create_tiles(
-                self.step_4_generate_tiles_tiles,
-                self.step_4_generate_tiles_kmz,
-                self.step_4_generate_tiles_rgb_kmz,
-                self.step_4_generate_tiles_ab_kmz,
-                self.step_5_generate_mosaic_vrt,
-                frequency, orbit_pass_direction_str,
-                mosaic_min_lat, mosaic_max_lat,
-                mosaic_min_lon, mosaic_max_lon,
-                mosaic_tiles_map,
-                flag_last_pol, suffix_list, suffix_rgb,
-                # pol,
-                list_of_output_files,
-                # product_type=self.product_type,
-                output_dir_prefix=self.step_4_directory,
-                suffix=suffix)
+            self.step_4_generate_tiles_tiles,
+            self.step_4_generate_tiles_kmz,
+            self.step_4_generate_tiles_rgb_kmz,
+            self.step_4_generate_tiles_ab_kmz,
+            self.step_5_generate_mosaic_vrt,
+            frequency, orbit_pass_direction_str,
+            mosaic_min_lat, mosaic_max_lat,
+            mosaic_min_lon, mosaic_max_lon,
+            mosaic_tiles_map,
+            flag_last_pol, suffix_list, suffix_rgb,
 
-        # pol = ''
+            list_of_output_files,
+
+            output_dir_prefix=self.step_4_directory,
+            suffix=suffix)
+
         if self.step_6_generate_mosaic_kmz:
             print('    Step 6: Kmz')
             kmz_file = f'{self.step_5_directory}/mosaic{suffix}.kmz'
             self.util(vrt_file, output_file=kmz_file, force=True,
-                      # cmap_min=0,ovr=0,
-                      in_null=np.nan)  # , cmap_max=max_v)
+
+                      in_null=np.nan)
 
         if self.step_6_generate_mosaic_pol_kmz:
             for pol_count, pol in enumerate(['_HH', '_HV']):
                 mosaic_vrt_file = \
-                        f'{self.step_5_directory}/mosaic{suffix}.vrt'
+                    f'{self.step_5_directory}/mosaic{suffix}.vrt'
                 print('    Step 6: Kmz')
                 kmz_file = f'{self.step_5_directory}/mosaic{suffix}.kmz'
                 print('vrt_file:', vrt_file)
                 self.util(mosaic_vrt_file, output_file=kmz_file,
                           force=True,
-                          # cmap_min=0, ovr=0,
+
                           in_null=np.nan)
 
         if self.step_8_generate_time_map_kmz:
             tiles_map_geotransform = [-180, 1, 0, 90, 0, -1]
-            '''
+
             plant.save_image(
-                    mosaic_tiles_map.copy(),
-                    f'{self.step_5_directory}/tiles_map{suffix}.tif',
-                    geotransform=tiles_map_geotransform,
-                    force=True)
-            '''
-            plant.save_image(
-                    mosaic_tiles_map.copy(),
-                    f'{self.step_5_directory}/tiles_map{suffix}.kmz',
-                    geotransform=tiles_map_geotransform,
-                    force=True)
+                mosaic_tiles_map.copy(),
+                f'{self.step_5_directory}/tiles_map{suffix}.kmz',
+                geotransform=tiles_map_geotransform,
+                force=True)
             for epsg, tile_map in tiles_map_by_epsg.items():
                 if epsg == 'mosaic':
                     continue
@@ -592,7 +551,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
     def step_1_2_processing_native_coordinates(
             self, flag_s3_bucket, bucket_name, s3_prefix, kwargs_color,
-            # product_count,
+
             tiles_map_by_epsg, bbox_by_epsg,
             kwargs_product_data_to_backscatter):
 
@@ -624,12 +583,12 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                     len(self.filename_must_include) > 0):
 
                 for s in self.filename_must_include:
-                    # print('filename must include:', s)
+
                     if s in path or s in f:
-                        # print('found!!!')
+
                         break
                 else:
-                    # print('not found skipping')
+
                     continue
 
             if (self.filename_must_not_include is not None and
@@ -647,9 +606,6 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 continue
 
             downloaded_file = os.path.join(self.step_1_directory, f)
-            # new_path = path.replace(s3_prefix, '')
-            # subfolder_path = os.path.join(new_path, f)
-            # subfolder_path_splitted = subfolder_path.split('/')
 
             original_basename = os.path.splitext(f)[0]
             print('***    f:', f)
@@ -665,16 +621,16 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             print('***    basename:', basename)
             png_file = os.path.join(self.step_1_directory,
                                     f'{basename}_BROWSE.png')
-            # print('png_file:', png_file)
+
             if (self.step_1_download_browse and f.endswith('.png') and
                     not os.path.isfile(png_file)):
-                #  and not os.path.isfile(output_file)
+
                 os.makedirs(os.path.dirname(downloaded_file),
                             exist_ok=True)
                 print('    Step 1: Downloading browse file (PNG):', f)
                 try:
                     my_bucket.download_file(objects.key, f)
-                except:
+                except BaseException:
                     print('        there was an error downloading file:', f)
                     continue
                 os.rename(f, png_file)
@@ -685,23 +641,23 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
             kml_file = os.path.join(self.step_1_directory,
                                     f'{basename}_BROWSE.kml')
-            # print('kml_file:', kml_file)
+
             if (self.step_1_download_kml and f.endswith('.kml') and
                     not os.path.isfile(kml_file)):
-                #  and not os.path.isfile(output_file)
+
                 os.makedirs(os.path.dirname(downloaded_file),
                             exist_ok=True)
                 print('    Step 1: Downloading browse file:', f)
                 try:
                     my_bucket.download_file(objects.key, f)
-                    # os.rename(f, kml_file)
-                except:
+
+                except BaseException:
                     print('        there was an error downloading file:', f)
                     continue
                 substitute_in_file(
-                        f, kml_file, [f'{original_basename}.png',
-                                      'overlay image'],
-                        [f'{basename}_BROWSE.png', basename])
+                    f, kml_file, [f'{original_basename}.png',
+                                  'overlay image'],
+                    [f'{basename}_BROWSE.png', basename])
                 os.remove(f)
                 continue
             elif f.endswith('.kml'):
@@ -718,12 +674,11 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                     'secret_id': np.bytes_(creds["aws_access_key_id"]),
                     'secret_key': np.bytes_(creds["aws_secret_access_key"]),
                     'aws_region': np.bytes_(creds["region_name"])
-                    }
+                }
 
-                # Session token only if present
                 if creds["aws_session_token"]:
                     kwargs["session_token"] = \
-                            np.bytes_(creds["aws_session_token"])
+                        np.bytes_(creds["aws_session_token"])
 
                 h5_obj = h5py.File(s3_product_path, driver='ros3',
                                    **kwargs)
@@ -753,7 +708,6 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                     self.print(f'bbox_max_lat: {bbox_max_lat}')
                     self.print(f'bbox_max_lon: {bbox_max_lon}')
 
-                # Create the outer polygon
                 outer_ring = ogr.Geometry(ogr.wkbLinearRing)
                 outer_ring.AddPoint(bbox_max_lon, bbox_min_lat)
                 outer_ring.AddPoint(bbox_max_lon, bbox_max_lat)
@@ -767,9 +721,6 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 min_lon, max_lon, min_lat, max_lat = \
                     product_polygon.GetEnvelope()
 
-                # lon_center = (min_lon + max_lon) / 2
-                # lat_center = (min_lat + max_lat) / 2
-
                 self.print('product extents:')
                 with plant.PlantIndent():
                     self.print(f'min_lat: {min_lat}')
@@ -777,36 +728,9 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                     self.print(f'max_lat: {max_lat}')
                     self.print(f'max_lon: {max_lon}')
 
-                # srs = ogr.osr.SpatialReference()
-                # srs.ImportFromEPSG(4326)  # WGS84
-                # outer_polygon_ogr.AssignSpatialReference(srs)
-
-                '''
-                NISAR_L2_PR_GCOV_005_018_D_060_4005_SHSH_A_20250924T105342_20250924T105419_P00410_N_F_J_001
-
-                mean_lon = (min_lon + max_lon) / 2
-                mean_lat = (min_lat + max_lat) / 2
-                print('longitude:', mean_lon)
-                print('latitude:', mean_lat)
-                if mean_lon < -80 or mean_lon > -50 or mean_lat > 5 or mean_lat < -17:
-                    print('not Amazon!!!')
-                    continue
-                '''
-
                 if not outer_polygon_ogr.Contains(product_polygon):
                     print('Product is outside bbox')
                     continue
-                '''
-                if (lon_center > bbox_min_lon and lon_center < bbox_max_lon and
-                        lat_center > bbox_min_lat and
-                        lat_center < bbox_max_lat):
-                    print('ATTENTION! Product should be inside the polygon')
-                    print('ATTENTION! Product should be inside the polygon')
-                    print('ATTENTION! Product should be inside the polygon')
-                    print('ATTENTION! Product should be inside the polygon')
-                else:
-                    continue
-                    '''
 
             list_of_frequencies = [freq.decode()
                                    for freq in list_of_frequencies_orig]
@@ -827,19 +751,13 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             update_tiles_map_dict(tiles_map_by_epsg, bbox_by_epsg,
                                   bounding_polygon, epsg)
 
-            '''
-                output_dir = os.path.join(
-                    self.step_2_directory,  # epsg,
-                    '_'.join(subfolder_path_splitted[:-2]))
-                '''
             output_dir = self.step_2_directory
-            # os.makedirs(self.step_2_directory,
-            #             exist_ok=True)
+
             os.makedirs(output_dir, exist_ok=True)
 
             if (self.step_1_download_hdf5 and
                     not os.path.isfile(downloaded_file)):
-                #  and not os.path.isfile(output_file)
+
                 os.makedirs(os.path.dirname(downloaded_file),
                             exist_ok=True)
                 print('    Step 1: Downloading file:', f)
@@ -847,7 +765,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                     my_bucket.download_file(objects.key, f)
                     os.rename(f, downloaded_file)
                     product_count += 1
-                except:
+                except BaseException:
                     print('        there was an error downloading file:', f)
                     continue
             elif os.path.isfile(downloaded_file):
@@ -856,7 +774,6 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             else:
                 print('        HDF5 not found/downloaded:', f)
                 downloaded_file = None
-                # continue
 
             for frequency, pols in list_of_frequencies_dict.items():
 
@@ -872,27 +789,6 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                     kwargs_color, kwargs_product_data_to_backscatter,
                     frequency_epsg_dict, downloaded_file, basename, epsg,
                     output_dir, frequency, pols)
-
-                '''
-                    print('    Step 2: multilooking file:', output_file)
-                    vsis3_product_path = f'vsis3/{bucket_name}/{path}/{f}'
-                    data_ref = f'NISAR:/{vsis3_product_path}:{frequency}'
-                    flag_error_count = 0
-                    while flag_error_count < 3:
-                        try:
-                            plant.filter(data_ref,
-                                        nlooks_x=nlooks_x, nlooks_y=nlooks_y, output_file=output_file, force=True,
-                                        of=cog_str)
-                            break
-                        except:
-                            if os.path.isfile(output_file):
-                                os.remove(output_file)
-                            flag_error_count += 1
-                            if flag_error_count == 3:
-                                print(f'WARNING there was a problem processing file "{f}". Skipping')
-                        # if STEP_REMOVE_DOWNLOADED_FILE_WHEN_PROCESSED and os.path.isfile(downloaded_file):
-                        #     os.remove(downloaded_file)
-                    '''
 
         return frequency_epsg_dict
 
@@ -916,27 +812,13 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             input_ref = f'NISAR:{downloaded_file}:{frequency}'
             filter_method(
                 input_ref,
-                # downloaded_file,
-                # frequency=frequency,
+
                 nlooks_x=nlooks_x,
                 nlooks_y=nlooks_y,
                 output_file=output_file,
                 force=True,
-                # of=cog_str,
-                **kwargs_product_data_to_backscatter)
 
-        '''
-        if os.path.isfile(output_file):
-            if epsg not in frequency_epsg_dict[frequency].keys():
-                frequency_epsg_dict[frequency][epsg] = \
-                                [output_file]
-            else:
-                frequency_epsg_dict[frequency][epsg].append(
-                                output_file)
-                # print('                frequency_epsg_dict[frequency][epsg]:',
-                #       frequency_epsg_dict[frequency][epsg])
-                # update_tiles_map_dict(tiles_map_by_epsg, output_file, epsg)
-        '''
+                **kwargs_product_data_to_backscatter)
 
         for band, pol in enumerate(pols):
             output_file_pol = \
@@ -946,14 +828,13 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 input_ref = f'NISAR:{downloaded_file}:{frequency}'
                 filter_method(
                     input_ref,
-                    # downloaded_file,
-                    # frequency=frequency,
+
                     nlooks_x=nlooks_x,
                     nlooks_y=nlooks_y,
                     output_file=output_file_pol,
                     force=True,
                     band=band,
-                    # of=cog_str,
+
                     **kwargs_product_data_to_backscatter)
 
             if os.path.isfile(output_file_pol):
@@ -975,12 +856,11 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
         elif (self.step_2_generate_kmz and not os.path.isfile(output_kmz)):
             input_ref = f'NISAR:{downloaded_file}:{frequency}'
             filter_method(input_ref,
-                          # downloaded_file,
-                          # frequency=frequency,
+
                           nlooks_x=nlooks_x,
                           nlooks_y=nlooks_y,
                           output_file=output_kmz, force=True,
-                          # of=cog_str,
+
                           **kwargs_product_data_to_backscatter,
                           **kwargs_color)
 
@@ -990,14 +870,13 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
         elif (self.step_2_generate_png and not os.path.isfile(output_png)):
             input_ref = f'NISAR:{downloaded_file}:{frequency}'
             filter_method(input_ref,
-                          # downloaded_file,
-                          # frequency=frequency,
+
                           nlooks_x=nlooks_x,
                           nlooks_y=nlooks_y,
                           cmap_max=self.cmap_max,
                           cmap_min=self.cmap_min,
                           output_file=output_png, force=True,
-                          # of=cog_str,
+
                           **kwargs_product_data_to_backscatter,
                           **kwargs_color)
 
@@ -1007,9 +886,9 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                      frequency, orbit_pass_direction_str,
                      min_lat, max_lat, min_lon, max_lon,
                      tiles_map, flag_last_pol, suffix_list, suffix_rgb,
-                     # pol,
+
                      list_of_output_files,
-                     # product_type,
+
                      output_dir_prefix,
                      suffix=''):
 
@@ -1025,7 +904,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
         print('    max lat:', max_lat)
 
         file_list = []
-        # lower-left corner
+
         for lat in range(min_lat, max_lat + 1):
             sn_str = 'S' if lat < 0 else 'N'
             lat_str = f'{sn_str}{abs(lat):02d}_00'
@@ -1051,22 +930,20 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                     f'{self.product_type}_{lat_str}_{lon_str}_AB'
                     f'_HH{orbit_pass_direction_str}.kmz')
 
-                # print(f'processing tile (lat:{lat}, lon:{lon})')
-
                 if flag_generate_tiles and not os.path.isfile(tile_file):
                     try:
                         plant.mosaic(*list_of_output_files,
                                      output_file=tile_file,
-                                     bbox=[lat, lat+1, lon, lon+1],
+                                     bbox=[lat, lat + 1, lon, lon + 1],
                                      step=res_deg_dict[frequency],
                                      force=True, in_null='nan',
                                      out_null='nan', of=cog_str,
                                      interp='average',
                                      out_projection='wgs84')
-                        # , no_average=True)
+
                         file_list.append(tile_file)
-                    except:
-                        # tiles_map[180 - (lat - 1 + 90), lon + 180] = 0
+                    except BaseException:
+
                         pass
 
                 elif os.path.isfile(tile_file):
@@ -1075,14 +952,12 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 if not os.path.isfile(tile_file):
                     continue
 
-                if (flag_generate_tiles_kmz and  # os.path.isfile(tile_file) and
-                        # (frequency == 'B' or
+                if (flag_generate_tiles_kmz and
+
                         not os.path.isfile(tile_kmz_file)):
 
                     self.util(tile_file, output_file=tile_kmz_file,
-                              # cmap_min=0,
-                              # cmap_max=cmap_max_dict[frequency][0],
-                              # band=0,
+
                               force=True)
 
                 if (flag_generate_tiles_rgb_kmz and flag_last_pol and
@@ -1101,24 +976,18 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
                     self.util(*rgb_file_list,
                               output_file=tile_rgb_kmz_file,
-                              # cmap_min=0,
-                              # cmap_max=cmap_max_dict[frequency][0],
-                              # band=0,
+
                               force=True)
 
                 if (flag_generate_tiles_ab_kmz and
                         os.path.isfile(tile_file) and
                         frequency == 'B' and
                         not os.path.isfile(tile_kmz_ab_hh_file)):
-                    '''
-                    cmap_max_str = ','.join([str(v)
-                                            for v in [cmap_max_dict['A'][0],
-                                                    cmap_max_dict['B'][0]]])
-                    '''
-                    self.util(tile_file.replace('_B_', '_A_'), tile_file.replace('A', 'B'),
-                              output_file=tile_kmz_ab_hh_file,
-                              # cmap_min=0, cmap_max=cmap_max_str,
-                              band=0, force=True)
+
+                    self.util(
+                        tile_file.replace(
+                            '_B_', '_A_'), tile_file.replace(
+                            'A', 'B'), output_file=tile_kmz_ab_hh_file, band=0, force=True)
 
         if len(file_list) == 0:
             return
@@ -1126,14 +995,13 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
         vrt_file = f'{output_dir_prefix}/mosaic{suffix}.vrt'
         if flag_vrts:
             os.makedirs(output_dir_prefix, exist_ok=True)
-            # print('    Step 5: Building VRT from files:', file_list,
-            #         ', output file:', vrt_file)
+
             if os.path.isfile(vrt_file):
                 os.remove(vrt_file)
             gdal.BuildVRT(vrt_file, file_list, srcNodata='nan',
                           VRTNodata='nan',
                           outputBounds=[min_lon, min_lat, max_lon, max_lat])
-            # bandList=[pol_count + 1])  # , resampleAlg='average')
+
             print('        file saved:', vrt_file)
             add_overviews_vrt(vrt_file)
             print(f'        file updated: {vrt_file} (added overviews)')
@@ -1143,11 +1011,10 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
 def substitute_in_file(filename, output_file, old_substring_list,
                        new_substring_list):
-    # Read file contents
+
     with open(filename, "r", encoding="utf-8") as file:
         content = file.read()
 
-    # Replace substring
     if isinstance(old_substring_list, str):
         old_substring_list = [old_substring_list]
     if isinstance(new_substring_list, str):
@@ -1158,8 +1025,7 @@ def substitute_in_file(filename, output_file, old_substring_list,
         print(f'    replacing "{old_substring}" with "{new_substring}"')
         content = content.replace(old_substring, new_substring)
 
-    # Write back to file
-    with open(output_file,  "w", encoding="utf-8") as file:
+    with open(output_file, "w", encoding="utf-8") as file:
         file.write(content)
 
 
@@ -1170,25 +1036,17 @@ def load_aws_credentials_boto3(profile="default"):
         return
     frozen_creds = creds.get_frozen_credentials()
     driver_kwds = {
-        "aws_region": b"us-west-2", # Hard-coded or detect from environment
+        "aws_region": b"us-west-2",
         "secret_id": frozen_creds.access_key.encode(),
         "secret_key": frozen_creds.secret_key.encode(),
-        }
+    }
     if frozen_creds.token:
         driver_kwds["session_token"] = frozen_creds.token.encode()
     return driver_kwds
 
 
 def load_aws_credentials(profile="default"):
-    """
-    Load AWS credentials from ~/.aws/credentials.
 
-    Parameters:
-                profile (str): The AWS profile to load (default: "default").
-     Returns:
-                dict: A dictionary with keys 'aws_access_key_id',
-                'aws_secret_access_key', and optionally 'aws_session_token'.
-    """
     credentials_path = os.path.expanduser("~/.aws/credentials")
 
     if not os.path.exists(credentials_path):
@@ -1206,10 +1064,9 @@ def load_aws_credentials(profile="default"):
         "aws_access_key_id": config[profile].get("aws_access_key_id"),
         "aws_secret_access_key": config[profile].get("aws_secret_access_key"),
         "region_name": config[profile].get("region", "us-east-1"),
-        # fallback if region missing
+
     }
 
-    # Session token is optional (used for temporary credentials)
     if "aws_session_token" in config[profile]:
         creds["aws_session_token"] = config[profile]["aws_session_token"]
 
@@ -1240,10 +1097,7 @@ def get_product_epsg(h5_obj, product_type):
 def add_overviews_vrt(vrt_file):
     command = ('gdaladdo '
                ' --config VRT_VIRTUAL_OVERVIEWS YES'
-               # ' -r average'
-               # -r cubic --config'
-               # f' GDAL_TIFF_OVR_BLOCKSIZE {args.block_size}'
-               # f' {vrt_file} 2 4 8 16 32 64 128 256 512 1024')
+
                f' {vrt_file} 2 4 8 16 32 64 128')
     plant.execute(command)
 
@@ -1252,24 +1106,22 @@ def add_overviews_tif(tif_file):
     command = ('gdaladdo '
                ' --config VRT_VIRTUAL_OVERVIEWS YES'
                ' -r average'
-               # -r cubic --config'
-               # f' GDAL_TIFF_OVR_BLOCKSIZE {args.block_size}'
-               # f' {vrt_file} 2 4 8 16 32 64 128 256 512 1024')
+
                f' {tif_file} 2 4 8 16 32 64 128')
     plant.execute(command)
 
 
-def update_tiles_map_dict(tiles_map_by_epsg,  # tiles_map,
+def update_tiles_map_dict(tiles_map_by_epsg,
                           bbox_by_epsg, bounding_polygon, epsg):
     if epsg not in tiles_map_by_epsg.keys():
-        # print('adding epsg to `tiles_map_by_epsg`:', epsg)
+
         epsg_tiles_map = np.zeros((180, 360), dtype=np.byte)
         epsg_min_lat = +90
         epsg_max_lat = -90
         epsg_min_lon = +180
         epsg_max_lon = -180
     else:
-        # print('existing epsg in `tiles_map_by_epsg`:', epsg)
+
         epsg_tiles_map = tiles_map_by_epsg[epsg]
         epsg_min_lon, epsg_max_lon, epsg_min_lat, epsg_max_lat = \
             bbox_by_epsg[epsg]
@@ -1284,25 +1136,21 @@ def update_tiles_map_dict(tiles_map_by_epsg,  # tiles_map,
     epsg_min_lat = min([epsg_min_lat, min_lat])
     epsg_max_lat = max([epsg_max_lat, max_lat])
 
-    # y_max = 90
-    # y_min = -90
     lat_index_beg = 180 - (int(np.ceil(max_lat)) + 90)
     lat_index_end = 180 - (int(np.ceil(min_lat)) + 90) + 1
     lon_index_beg = int(min_lon) + 180
     lon_index_end = int(max_lon) + 180 + 1
     epsg_tiles_map[lat_index_beg:lat_index_end,
-                   lon_index_beg:lon_index_end] = 1 
+                   lon_index_beg:lon_index_end] = 1
 
     tiles_map_by_epsg[epsg] = epsg_tiles_map
     bbox_by_epsg[epsg] = epsg_min_lon, epsg_max_lon, epsg_min_lat, epsg_max_lat
 
-    # mosaic
     if 'mosaic' in tiles_map_by_epsg.keys():
         mosaic_tiles_map = tiles_map_by_epsg['mosaic']
     else:
         mosaic_tiles_map = np.zeros((180, 360), dtype=np.uint16)
 
-    # mosaic_tiles_map = np.logical_or(mosaic_tiles_map, tiles_map_by_epsg[epsg])
     mosaic_tiles_map = mosaic_tiles_map + tiles_map_by_epsg[epsg]
     tiles_map_by_epsg['mosaic'] = mosaic_tiles_map
 
