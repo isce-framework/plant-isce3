@@ -7,7 +7,7 @@ import plant_isce3
 from osgeo import osr
 import numpy as np
 import isce3
-from nisar.products.readers import SLC, open_product
+from plant_isce3.readers import SLC, open_product
 import nisar.workflows.helpers as helpers
 import yamale
 from ruamel.yaml import YAML
@@ -156,9 +156,14 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
         if plant.isvalid(self.step_y) and 'B' in slc_obj.frequencies:
             freq_b_dy = self.step_y
 
-        freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy = \
-            self.get_pixel_spacing(freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy,
-                                   slc_obj)
+        if self.workflow_name == 'GSLC':
+            freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy = \
+                self.get_pixel_spacing_gslc(
+                    freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy, slc_obj)
+        else:
+            freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy = \
+                self.get_pixel_spacing_gcov(
+                    freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy, slc_obj)
 
         if self.snap_x:
             x0 = snap_coord(x0, self.snap_x, 0, np.floor)
@@ -282,13 +287,8 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
                 self.output_files.append(self.output_file)
                 return self.output_file
 
-    def get_pixel_spacing(self, freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy,
-                          slc_obj):
-
-        if self.snap_y and self.snap_y == 100:
-            default_spacing_5_mhz = 100
-        else:
-            default_spacing_5_mhz = 80
+    def get_pixel_spacing_gcov(
+            self, freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy, slc_obj):
 
         if 'A' in slc_obj.frequencies:
             freq_a_bandwidth_mhz = int(np.round(
@@ -297,9 +297,9 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
             if freq_a_bandwidth_mhz == 5:
                 print('## frequency A: 5 MHz mode')
                 if not plant.isvalid(freq_a_dx):
-                    freq_a_dx = default_spacing_5_mhz
+                    freq_a_dx = 80
                 if not plant.isvalid(freq_a_dy):
-                    freq_a_dy = default_spacing_5_mhz
+                    freq_a_dy = 80
             elif freq_a_bandwidth_mhz == 20:
                 print('## frequency A: 20 MHz mode')
                 if not plant.isvalid(freq_a_dx):
@@ -331,9 +331,65 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
                 slc_obj.getSwathMetadata('B').processed_range_bandwidth / 1e6))
 
             if not plant.isvalid(freq_b_dx):
-                freq_b_dx = default_spacing_5_mhz
+                freq_b_dx = 80
             if not plant.isvalid(freq_b_dy):
-                freq_b_dy = default_spacing_5_mhz
+                freq_b_dy = 80
+
+            if freq_b_bandwidth_mhz != 5:
+                print('WARNING invalid NISAR range bandwidth mode:'
+                      f' {freq_b_bandwidth_mhz}')
+            else:
+                print('## frequency B: 5 MHz mode')
+
+        return freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy
+
+    def get_pixel_spacing_gslc(
+            self, freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy, slc_obj):
+
+        if 'A' in slc_obj.frequencies:
+            freq_a_bandwidth_mhz = int(np.round(
+                slc_obj.getSwathMetadata('A').processed_range_bandwidth / 1e6))
+
+            if freq_a_bandwidth_mhz == 5:
+                print('## frequency A: 5 MHz mode')
+                if not plant.isvalid(freq_a_dx):
+                    freq_a_dx = 40
+                if not plant.isvalid(freq_a_dy):
+                    freq_a_dy = 5
+            elif freq_a_bandwidth_mhz == 20:
+                print('## frequency A: 20 MHz mode')
+                if not plant.isvalid(freq_a_dx):
+                    freq_a_dx = 10
+                if not plant.isvalid(freq_a_dy):
+                    freq_a_dy = 5
+            elif freq_a_bandwidth_mhz == 40:
+                print('## frequency A: 40 MHz mode')
+                if not plant.isvalid(freq_a_dx):
+                    freq_a_dx = 5
+                if not plant.isvalid(freq_a_dy):
+                    freq_a_dy = 5
+            elif freq_a_bandwidth_mhz == 77 or freq_a_bandwidth_mhz == 80:
+                print('## frequency A: 77 MHz mode')
+                if not plant.isvalid(freq_a_dx):
+                    freq_a_dx = 2.5
+                if not plant.isvalid(freq_a_dy):
+                    freq_a_dy = 5
+            else:
+                print('WARNING invalid NISAR range bandwidth mode:'
+                      f' {freq_a_bandwidth_mhz}')
+                if not plant.isvalid(freq_a_dx):
+                    freq_a_dx = 10
+                if not plant.isvalid(freq_a_dy):
+                    freq_a_dy = 5
+
+        if 'B' in slc_obj.frequencies:
+            freq_b_bandwidth_mhz = int(np.round(
+                slc_obj.getSwathMetadata('B').processed_range_bandwidth / 1e6))
+
+            if not plant.isvalid(freq_b_dx):
+                freq_b_dx = 40
+            if not plant.isvalid(freq_b_dy):
+                freq_b_dy = 5
 
             if freq_b_bandwidth_mhz != 5:
                 print('WARNING invalid NISAR range bandwidth mode:'

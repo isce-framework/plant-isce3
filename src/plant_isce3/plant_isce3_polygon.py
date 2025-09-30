@@ -7,7 +7,7 @@ import numpy as np
 from osgeo import gdal
 import random
 import isce3
-from nisar.products.readers import SLC, open_product
+from plant_isce3.readers import SLC, open_product
 
 
 def get_parser():

@@ -4,8 +4,49 @@ import plant
 import plant_isce3
 import numpy as np
 from osgeo import osr
-import h5py
-from nisar.products.readers import open_product
+from plant_isce3.readers import open_product
+
+IDENTIFICATION_DICT = {
+    'absoluteOrbitNumber':
+        ['absolute orbit number', 1, int],
+    'trackNumber':
+        ['track number', 1, int],
+    'frameNumber':
+        ['frame number', 1, int],
+    'granuleId':
+        ['granule ID', None, str],
+    'productVersion':
+        ['product version', None, str],
+    'processingDateTime':
+        ['processing date time', None, str],
+    'platformName':
+        ['platform name', None, str],
+    'isDithered':
+        ['is dithered', None, str],
+    'isMixedMode':
+        ['is mixed mode', None, str],
+    'isFullFrame':
+        ['is full frame', None, str],
+    'compositeReleaseId':
+        ['composite release ID (CRID)', None, str],
+    'isJointObservation':
+        ['is joint observation', None, str]
+}
+
+FREQ_SWATH_DICT = {
+    'slantRangeSpacing':
+        ['slant range spacing [m]', 1, float],
+    'sceneCenterAlongTrackSpacing':
+        ['scene center ground spacing [m]', 1, float],
+    'sceneCenterGroundRangeSpacing':
+        ['scene center ground range spacing [m]', 1, float],
+    'processedRangeBandwidth':
+        ['processed range bandwidth [MHz]', 1e-6, float],
+    'acquiredRangeBandwidth':
+        ['acquired range bandw,idth [Hz]', 1e-6, float],
+    'processedAzimuthBandwidth':
+        ['processed azimuth bandwidth [Hz]', 1, float],
+}
 
 
 def get_parser():
@@ -93,22 +134,84 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
         with plant.PlantIndent():
             for freq, pol_list in freq_pol_dict.items():
                 print(f'{freq}: {pol_list}')
+
+        h5_obj = plant.h5py_file_wrapper(self.input_file, 'r', swmr=True)
+
+        metadata_path = nisar_product_obj.MetadataPath
+
         if nisar_product_obj.productType == 'GCOV':
 
             print('## covariance terms:')
             freq_pol_dict = nisar_product_obj.covarianceTerms
             with plant.PlantIndent():
-                for freq, cov_terms_list in freq_pol_dict.items():
-                    print(f'{freq}: {cov_terms_list}')
+                for frequency, cov_terms_list in freq_pol_dict.items():
+                    print(f'{frequency}: {cov_terms_list}')
 
-            metadata_path = nisar_product_obj.MetadataPath
-            with h5py.File(self.input_file, 'r', swmr=True) as gcov_h5_obj:
-                is_full_covariance = gcov_h5_obj[
-                    f'{metadata_path}/processingInformation/parameters/'
-                    'isFullCovariance'][()]
-                if not isinstance(is_full_covariance, str):
-                    is_full_covariance = is_full_covariance.decode()
-                print('## full covariance (True/False):', is_full_covariance)
+            is_full_covariance = h5_obj[
+                f'{metadata_path}/processingInformation/parameters/'
+                'isFullCovariance'][()]
+            if not isinstance(is_full_covariance, str):
+                is_full_covariance = is_full_covariance.decode()
+            print('## full covariance (True/False):', is_full_covariance)
+
+        if nisar_product_obj.getProductLevel() == 'L2':
+            swaths_base_path = f'{metadata_path}/sourceData/swaths/'
+            image_path = nisar_product_obj.GridPath
+        else:
+            swaths_base_path = nisar_product_obj.SwathPath
+            image_path = nisar_product_obj.SwathPath
+
+        pri_path = (f'{swaths_base_path}/zeroDopplerTimeSpacing')
+
+        pri = h5_obj[pri_path][()]
+
+        print('## other parameters:')
+        with plant.PlantIndent():
+            print(f'pulse repetition interval (PRI) [us]: {pri * 1e6}')
+            print(f'pulse repetition frequency (PRF) [Hz]: {1. / pri}')
+
+            self.print_h5_parameters(h5_obj,
+                                     nisar_product_obj.IdentificationPath,
+                                     IDENTIFICATION_DICT)
+
+            for frequency in freq_pol_dict.keys():
+                print(f'## frequency {frequency}')
+
+                freq_swaths_path = (f'{swaths_base_path}/'
+                                    f'frequency{frequency}')
+
+                if nisar_product_obj.productType == 'RSLC':
+                    nominal_acquisition_prf_path = \
+                        f'{freq_swaths_path}/nominalAcquisitionPRF'
+
+                    nominal_acquisition_prf = \
+                        h5_obj[nominal_acquisition_prf_path][()]
+
+                with plant.PlantIndent():
+
+                    if nisar_product_obj.productType == 'GCOV':
+                        first_image_path = \
+                            (f'{image_path}/frequency{frequency}/'
+                             f'{cov_terms_list[0]}')
+                    else:
+                        first_image_path = \
+                            (f'{image_path}/frequency{frequency}/'
+                             f'{freq_pol_dict[frequency][0]}')
+                    first_image_shape = h5_obj[first_image_path].shape
+
+                    print('## number of lines (azimuth lines):'
+                          f' {first_image_shape[0]}')
+                    print('## number of samples (range bins):'
+                          f' {first_image_shape[1]}')
+
+                    if nisar_product_obj.productType == 'RSLC':
+                        print('nominal acquisition PRF [Hz]:'
+                              f' {nominal_acquisition_prf}')
+
+                    self.print_h5_parameters(h5_obj, freq_swaths_path,
+                                             FREQ_SWATH_DICT)
+
+        h5_obj.close()
 
         polygon = nisar_product_obj.identification.boundingPolygon
 
@@ -183,6 +286,17 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                     print('max Y:', y_max)
                     print('max X:', x_max)
                     print(coord_str)
+
+    def print_h5_parameters(self, h5_obj, h5path, dict_datasets_text):
+        for dataset, (text, factor, dtype) in dict_datasets_text.items():
+            h5_path = f'{h5path}/{dataset}'
+            if dtype == str:
+                value = h5_obj[h5_path][()]
+                if not isinstance(value, str):
+                    value = value.decode()
+            else:
+                value = dtype(factor * h5_obj[h5_path][()])
+            print(f'{text}: {value}')
 
 
 def lat_lon_to_projected(north, east, epsg):

@@ -6,7 +6,7 @@ import plant_isce3
 from osgeo import gdal
 import numpy as np
 import isce3
-from nisar.products.readers import SLC
+from plant_isce3.readers import SLC
 from isce3.atmosphere.tec_product import (tec_lut2d_from_json_srg,
                                           tec_lut2d_from_json_az)
 

@@ -8,13 +8,13 @@ import gc
 import plant_isce3
 import importlib
 from collections.abc import Sequence
-from nisar.products.readers import open_product
+from plant_isce3.readers import open_product
 from nisar.workflows.geogrid import _grid_size
 import numpy as np
 import isce3
 from osgeo import osr, gdal, gdal_array
 
-from nisar.products.readers.orbit import load_orbit_from_xml
+from plant_isce3.readers.orbit import load_orbit_from_xml
 
 import plant
 
@@ -534,9 +534,20 @@ def multilook_isce3(input_raster_file, output_file,
                     multilooked_image = block_array
 
                 else:
-                    multilooked_image = isce3.signal.multilook_nodata(
+                    is_finite_array = np.isfinite(block_array)
+
+                    block_array[~is_finite_array] = 0
+
+                    multilooked_image = isce3.signal.multilook_summed(
                         block_array,
-                        int(nlooks_y), int(nlooks_x), np.nan)
+                        int(nlooks_y), int(nlooks_x))
+                    multilooked_image_is_finite = \
+                        isce3.signal.multilook_summed(
+                            is_finite_array, int(nlooks_y), int(nlooks_x))
+                    multilooked_image = (multilooked_image /
+                                         multilooked_image_is_finite)
+                    multilooked_image[multilooked_image_is_finite == 0] = \
+                        np.nan
 
                 start_line_ml = int(start_line // nlooks_y)
                 end_line_ml = int(end_line // nlooks_y)
@@ -1115,6 +1126,16 @@ class PlantIsce3Sensor():
             width, length, epsg)
 
         return geogrid_all, geogrids_dict
+
+    def get_h5_dataset(self, path, *args, **kwargs):
+        if (self.sensor_name != 'NISAR'):
+            raise RuntimeError
+
+        h5_obj = plant.h5py_file_wrapper(self.input_file, *args, **kwargs)
+        ret = h5_obj[path][()]
+        h5_obj.close()
+
+        return ret
 
 
 class PlantIsce3Script(plant.PlantScript):
@@ -1721,14 +1742,9 @@ class PlantIsce3Script(plant.PlantScript):
 
     def get_frequency_str(self):
 
-        frequency = self.getattr2(self.plant_script_obj, 'frequency')
-        if frequency is not None:
-            return frequency
+        frequency = self.getattr2('frequency')
 
-        frequency_str = list(
-            self.nisar_product_obj.polarizations.keys())[0]
-
-        return frequency_str
+        return frequency
 
     def get_radar_grid_ml(self, radar_grid, frequency=None):
 
