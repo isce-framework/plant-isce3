@@ -137,9 +137,11 @@ class Identification(object):
         self.productType = extractScalar(h5grp, 'productType',
                                       bytestring, self.context['error'],
                                       'Product type could not be determined')
-        self.absoluteOrbitNumber = extractScalar(h5grp, 'absoluteOrbitNumber',
-                                      int, self.context['info'],
-                                      'Absolute orbit number could not be identified')
+        if self.productType != 'STATIC':
+            self.absoluteOrbitNumber = extractScalar(h5grp, 'absoluteOrbitNumber',
+                                        int, self.context['info'],
+                                        'Absolute orbit number could not be identified')
+
         self.lookDirection = extractScalar(h5grp, 'lookDirection',
                                       bytestring, self.context['error'],
                                       'Look direction could not be identified')
@@ -157,6 +159,9 @@ class Identification(object):
         self.boundingPolygon = extractScalar(h5grp, 'boundingPolygon',
                                       bytestring, self.context['info'],
                                       'No bounding polygon could be identified')
+
+        if self.productType == 'STATIC':
+            return
 
         self.listOfFrequencies = extractWithIterator(h5grp, 'listOfFrequencies',
                                       bytestring, self.context['error'],

@@ -31,6 +31,7 @@ def get_parser():
     parser = plant.argparse(epilog=epilog,
                             description=descr,
                             input_file=2,
+                            dem_file=1,
                             default_output_options=1,
                             default_flags=1,
                             output_format=1,
@@ -49,7 +50,6 @@ def get_parser():
                         help='Product type')
 
     parser.add_argument('--filename-must-include',
-                        '--filename-should-include',
                         type=str,
                         nargs='*',
                         dest='filename_must_include',
@@ -57,7 +57,6 @@ def get_parser():
                         ' include (at least one)')
 
     parser.add_argument('--filename-must-not-include',
-                        '--filename-should-not-include',
                         type=str,
                         nargs='*',
                         dest='filename_must_not_include',
@@ -315,10 +314,6 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
         tiles_map_by_epsg_pickle_file = 'pickle_files/tiles_map_by_epsg.pkl'
         bbox_by_epsg_pickle_file = 'pickle_files/bbox_by_epsg.pkl'
 
-        kwargs_product_data_to_backscatter = {}
-        if self.product_type == 'GSLC':
-            kwargs_product_data_to_backscatter['square'] = True
-
         if self.skip_step_1_and_load_cogs_from:
             search_pattern = os.path.join(
                 self.skip_step_1_and_load_cogs_from, '**', '*.tif')
@@ -390,8 +385,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
         else:
             frequency_epsg_dict = self.step_1_2_processing_native_coordinates(
                 flag_s3_bucket, bucket_name, s3_prefix, kwargs_color,
-                tiles_map_by_epsg, bbox_by_epsg,
-                kwargs_product_data_to_backscatter)
+                tiles_map_by_epsg, bbox_by_epsg)
 
         if self.step_1_save_pickle_files:
             os.makedirs('pickle_files', exist_ok=True)
@@ -552,8 +546,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
     def step_1_2_processing_native_coordinates(
             self, flag_s3_bucket, bucket_name, s3_prefix, kwargs_color,
 
-            tiles_map_by_epsg, bbox_by_epsg,
-            kwargs_product_data_to_backscatter):
+            tiles_map_by_epsg, bbox_by_epsg):
 
         print('    Step 1: loading datasets from s3 bucket:')
         product_count = 1
@@ -686,10 +679,15 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             else:
                 h5_obj = h5py.File(os.join(path, f), swmr=True)
 
+            current_file_product_type = get_product_type(h5_obj)
+            current_product_level = get_product_level(h5_obj)
             if self.product_type is not None:
-                current_file_product_type = get_product_type(h5_obj)
                 if self.product_type != current_file_product_type:
                     continue
+
+            kwargs_product_data_to_backscatter = {}
+            if current_file_product_type == 'GSLC':
+                kwargs_product_data_to_backscatter['square'] = True
 
             list_of_frequencies_orig = \
                 h5_obj['/science/LSAR/identification/listOfFrequencies']
@@ -737,13 +735,28 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             list_of_frequencies_dict = {}
 
             for frequency in list_of_frequencies:
-                pol_list_orig = \
-                    h5_obj[f'/science/LSAR/{self.product_type}/grids/'
-                           f'frequency{frequency}/listOfPolarizations']
+
+                if current_product_level == 'L1':
+                    h5_path = (f'/science/LSAR/{current_file_product_type}/'
+                               f'swaths/frequency{frequency}/'
+                               'listOfPolarizations')
+                else:
+                    h5_path = (f'/science/LSAR/{current_file_product_type}/'
+                               f'grids/frequency{frequency}/'
+                               'listOfPolarizations')
+
+                if h5_path not in h5_obj:
+                    continue
+
+                pol_list_orig = h5_obj[h5_path]
+
                 pol_list = [pol.decode() for pol in pol_list_orig]
                 list_of_frequencies_dict[frequency] = pol_list
 
-            epsg = str(get_product_epsg(h5_obj, self.product_type))
+            if current_product_level == 'L2':
+                epsg = str(get_product_epsg(h5_obj, current_file_product_type))
+            else:
+                epsg = str(4326)
 
             h5_obj.close()
             del h5_obj
@@ -788,14 +801,14 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 self.run_process_native_coordinates_freq(
                     kwargs_color, kwargs_product_data_to_backscatter,
                     frequency_epsg_dict, downloaded_file, basename, epsg,
-                    output_dir, frequency, pols)
+                    output_dir, frequency, pols, current_product_level)
 
         return frequency_epsg_dict
 
     def run_process_native_coordinates_freq(
             self, kwargs_color, kwargs_product_data_to_backscatter,
             frequency_epsg_dict, downloaded_file, basename, epsg, output_dir,
-            frequency, pols):
+            frequency, pols, current_product_level):
 
         nlooks_y, nlooks_x = self.get_nlooks(frequency=frequency)
 
@@ -850,10 +863,11 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                         output_file_pol)
 
         if (self.step_2_generate_kmz and not os.path.isfile(output_kmz) and
-                os.path.isfile(output_file)):
+                os.path.isfile(output_file) and current_product_level == 'L2'):
             self.util(output_file, output_file=output_kmz, force=True)
 
-        elif (self.step_2_generate_kmz and not os.path.isfile(output_kmz)):
+        elif (self.step_2_generate_kmz and not os.path.isfile(output_kmz) and
+              current_product_level == 'L2'):
             input_ref = f'NISAR:{downloaded_file}:{frequency}'
             filter_method(input_ref,
 
@@ -863,6 +877,18 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
                           **kwargs_product_data_to_backscatter,
                           **kwargs_color)
+        elif self.step_2_generate_kmz and not os.path.isfile(output_kmz):
+            if os.path.isfile(output_file):
+                rslc_file = output_file
+            else:
+                rslc_file = downloaded_file
+
+            plant_isce3.geocode(rslc_file,
+
+                                dem_file=self.dem_file,
+                                output_file=output_kmz, force=True,
+
+                                **kwargs_color)
 
         if (self.step_2_generate_png and not os.path.isfile(output_png) and
                 os.path.isfile(output_file)):
@@ -1081,6 +1107,16 @@ def get_product_type(h5_obj):
         product_type = product_type.decode()
 
     return product_type
+
+
+def get_product_level(h5_obj):
+
+    product_level = \
+        h5_obj['/science/LSAR/identification/productLevel'][()]
+    if not isinstance(product_level, str):
+        product_level = product_level.decode()
+
+    return product_level
 
 
 def get_product_epsg(h5_obj, product_type):

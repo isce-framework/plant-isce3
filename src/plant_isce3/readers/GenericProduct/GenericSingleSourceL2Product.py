@@ -39,7 +39,7 @@ class GenericSingleSourceL2Product(
             get_hdf5_file_product_type(self.filename,
                                        root_path = self.RootPath)
 
-        SINGLE_SOURCE_L2_PRODUCT_LIST = ['GCOV', 'GSLC']
+        SINGLE_SOURCE_L2_PRODUCT_LIST = ['GCOV', 'GSLC', 'STATIC']
 
         if self.identification.productType not in SINGLE_SOURCE_L2_PRODUCT_LIST:
             error_msg = (
@@ -49,6 +49,8 @@ class GenericSingleSourceL2Product(
             self.error_channel.log(error_msg)
             raise RuntimeError(error_msg)
 
+        if self.productType == 'STATIC':
+            return
         self.parsePolarizations()
 
     def parsePolarizations(self):

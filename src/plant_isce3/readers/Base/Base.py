@@ -93,6 +93,7 @@ def open_h5_file(
         )
 '''
 
+
 def get_hdf5_file_root_path(filename: str, root_path: str = None) -> str:
     '''
     Return root path from NISAR product (HDF5 file).
@@ -203,7 +204,7 @@ class Base(pyre.component,
 
         self.identification.productType = self._ProductType
 
-        if self._ProductType is None:
+        if self._ProductType is None or self.productType == 'STATIC':
             return
 
         self.parsePolarizations()

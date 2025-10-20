@@ -58,6 +58,9 @@ class GenericProduct(Base, family='nisar.productreader.product'):
             get_hdf5_file_product_type(self.filename,
                                        root_path = self.RootPath)
 
+        if self.productType == 'STATIC':
+            return
+
         self.parsePolarizations()
 
     def parsePolarizations(self):
@@ -97,14 +100,14 @@ class GenericProduct(Base, family='nisar.productreader.product'):
         """
         Returns the product level
         """
-        if self.productType in ['GCOV', 'GSLC', 'GUNW', 'GOFF']:
+        if self.productType in ['GCOV', 'GSLC', 'GUNW', 'GOFF', 'STATIC']:
             return "L2"
         if self.productType in ['RSLC', 'RIFG', 'RUNW', 'ROFF']:
             return "L1"
         if self.productType in ['RRSD']:
             return "L0B"
         return "undefined"
-    
+
     def getImageDataset(
         self,
         frequency: str,

@@ -4,6 +4,7 @@ from . import (
     GenericProduct,
     get_hdf5_file_product_type,
     GCOV,
+    STATIC,
     GSLC,
     RSLC,
 )
@@ -45,6 +46,8 @@ def open_product(filename: str, root_path: str = None):
         return GSLC(**kwargs)
     if product_type == 'GCOV':
         return GCOV(**kwargs)
+    if product_type == 'STATIC':
+        return STATIC(**kwargs)
     if product_type == 'RRSD':
         return Raw(**kwargs)
     kwargs['_ProductType'] = product_type
