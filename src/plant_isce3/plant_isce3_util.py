@@ -10,7 +10,7 @@ import datetime
 import h5py
 import isce3
 
-from nisar.products.readers import open_product
+from plant_isce3.readers import open_product
 
 POL_LIST = ['HH', 'HV', 'VH', 'VV', 'RH', 'RV']
 

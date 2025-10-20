@@ -7,7 +7,7 @@ import plant_isce3
 import isce3
 from osgeo import gdal
 import numpy as np
-from nisar.products.readers import SLC
+from plant_isce3.readers import SLC
 
 
 def get_parser():
