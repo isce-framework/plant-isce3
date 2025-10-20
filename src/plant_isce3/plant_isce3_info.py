@@ -55,6 +55,7 @@ def get_parser():
     epilog = ''
     parser = plant.argparse(epilog=epilog,
                             description=descr,
+                            flag_debug=1,
                             input_files=1)
 
     plant_isce3.add_arguments(parser,
@@ -154,7 +155,9 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                 is_full_covariance = is_full_covariance.decode()
             print('## full covariance (True/False):', is_full_covariance)
 
-        if nisar_product_obj.getProductLevel() == 'L2':
+        if nisar_product_obj.productType == 'STATIC':
+            swaths_base_path = f'{metadata_path}/radarGridParameters'
+        elif nisar_product_obj.getProductLevel() == 'L2':
             swaths_base_path = f'{metadata_path}/sourceData/swaths/'
             image_path = nisar_product_obj.GridPath
         else:
@@ -190,6 +193,7 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                 with plant.PlantIndent():
 
                     if nisar_product_obj.productType == 'GCOV':
+                        cov_terms_list = freq_pol_dict[frequency]
                         first_image_path = \
                             (f'{image_path}/frequency{frequency}/'
                              f'{cov_terms_list[0]}')
@@ -290,12 +294,15 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
     def print_h5_parameters(self, h5_obj, h5path, dict_datasets_text):
         for dataset, (text, factor, dtype) in dict_datasets_text.items():
             h5_path = f'{h5path}/{dataset}'
+            if h5_path not in h5_obj:
+                continue
+            h5_dataset = h5_obj[h5_path]
             if dtype == str:
-                value = h5_obj[h5_path][()]
+                value = h5_dataset[()]
                 if not isinstance(value, str):
                     value = value.decode()
             else:
-                value = dtype(factor * h5_obj[h5_path][()])
+                value = dtype(factor * h5_dataset[()])
             print(f'{text}: {value}')
 
 

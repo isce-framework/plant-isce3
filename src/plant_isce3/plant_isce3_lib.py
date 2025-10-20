@@ -571,18 +571,22 @@ def multilook_isce3(input_raster_file, output_file,
 
     del input_gdal_ds
 
-    if verbose:
-        print('geotransform (original):', geotransform)
-    geotransform[1] = geotransform[1] * nlooks_x
-    geotransform[5] = geotransform[5] * nlooks_y
-
-    if verbose:
-        print('geotransform (multilooked):', geotransform)
-        print('projection:', projection)
-
     output_gdal_ds = gdal.Open(output_file, gdal.GA_Update)
-    output_gdal_ds.SetGeoTransform(geotransform)
-    output_gdal_ds.SetProjection(projection)
+    plant_geogrid_obj = plant.get_coordinates(geotransform=geotransform,
+                                              projection=projection)
+    if plant_geogrid_obj.has_valid_coordinates():
+
+        if verbose:
+            print('geotransform (original):', geotransform)
+        geotransform[1] = geotransform[1] * nlooks_x
+        geotransform[5] = geotransform[5] * nlooks_y
+
+        if verbose:
+            print('geotransform (multilooked):', geotransform)
+            print('projection:', projection)
+
+        output_gdal_ds.SetGeoTransform(geotransform)
+        output_gdal_ds.SetProjection(projection)
 
     if metadata_dict is not None:
         output_gdal_ds.SetMetadata(metadata_dict)
@@ -725,8 +729,13 @@ class PlantIsce3Sensor():
             if frequency is not None:
                 return frequency
 
-        frequency_str = list(
-            self.nisar_product_obj.polarizations.keys())[0]
+        frequency_list = list(
+            self.nisar_product_obj.polarizations.keys())
+
+        if len(frequency_list) == 0:
+            return
+
+        frequency_str = frequency_list[0]
 
         return frequency_str
 
