@@ -5,7 +5,8 @@ from .GenericProduct import (
     GenericProduct,
     GenericSingleSourceL2Product,
     get_hdf5_file_product_type,
-    GCOV
+    GCOV,
+    STATIC
 )
 from .SLC import GSLC, RSLC, SLC
 from . import Raw
