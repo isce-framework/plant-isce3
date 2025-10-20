@@ -12,7 +12,18 @@ import isce3
 
 from plant_isce3.readers import open_product
 
-POL_LIST = ['HH', 'HV', 'VH', 'VV', 'RH', 'RV']
+POL_LIST = ['HH', 'HV', 'VH', 'VV', 'RH', 'RV', 'XX']
+
+LIST_OF_STATIC_LAYERS = [
+    'digitalElevationModel',
+    'layoverShadowMask',
+    'localIncidenceAngle',
+    'losUnitVectorX',
+    'losUnitVectorY',
+    'waterMask',
+    'rtcGammaToSigmaFactor',
+    'rtcGammaToBetaFactor'
+]
 
 
 def get_parser():
@@ -55,6 +66,11 @@ def get_parser():
                        type=str,
                        help=('Rename polarization. Provide source and'
                              ' destination pols.'))
+
+    group.add_argument('--swap-quad-pol',
+                       dest='swap_quad_pol',
+                       action='store_true',
+                       help=("Swap quad-pol channels"))
 
     group.add_argument('--rm-pol',
                        '--remove-pol',
@@ -292,10 +308,22 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
         self.save_image_obj(image_obj)
 
+    def get_rrsd_path(self, pol):
+        path = f'/science/LSAR/RRSD/swaths/frequencyA/tx{pol[0]}/rx{pol[1]}/'
+        return path
+
     def run_nisar_as_input(self, plant_product_obj):
         nisar_product_obj = open_product(self.input_file)
 
         if self.flag_all_layers or self.flag_all_secondary_layers:
+            if nisar_product_obj.productType == 'STATIC':
+                self.nlooks_az, self.nlooks_rg = self.get_nlooks()
+
+                suffix = ''
+                return self.save_all_layers(nisar_product_obj,
+                                            plant_product_obj,
+                                            suffix)
+
             if self.frequency is not None:
 
                 self.nlooks_az, self.nlooks_rg = \
@@ -314,7 +342,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                     suffix = f'_freq_{freq.lower()}'
                     self.frequency = freq
 
-                    self.nlooks_az, self.nlooks_rg = self._get_nlooks(freq)
+                    self.nlooks_az, self.nlooks_rg = self.get_nlooks(freq)
 
                     self.save_all_layers(nisar_product_obj,
                                          plant_product_obj,
@@ -327,7 +355,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             freq_pol_dict = nisar_product_obj.polarizations
             self.frequency = list(freq_pol_dict.keys())[0]
 
-        elif self.mask_file:
+        if self.mask_file:
             self.save_mask(nisar_product_obj)
 
         elif self.layover_shadow_mask_file:
@@ -342,7 +370,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             self.save_nisar_layer('numberOfLooks', nisar_product_obj)
 
         elif self.data_file:
-            self.save_data()
+            self.save_data(plant_product_obj)
 
         elif self.runconfig_file:
             self.save_runconfig_file(nisar_product_obj)
@@ -376,6 +404,73 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                                               pol=self.move_pol[0])
                     print('done')
 
+            if self.swap_quad_pol:
+                exclude_string = 'frequencyB'
+                with h5py.File(self.output_file, 'a') as root_ds:
+                    if nisar_product_obj.productType == 'RRSD':
+                        print('*** input product is RRSD!')
+                        hh_path = self.get_rrsd_path('HH')
+                        hv_path = self.get_rrsd_path('HV')
+                        vh_path = self.get_rrsd_path('VH')
+                        vv_path = self.get_rrsd_path('VV')
+
+                        hh = root_ds[f'{hh_path}/HH']
+                        del root_ds[f'{hh_path}/HH']
+
+                        vh = root_ds[f'{vh_path}/VH']
+                        del root_ds[f'{vh_path}/VH']
+
+                        root_ds[vh_path].create_dataset('VH', data=hh)
+                        del hh
+                        root_ds[hh_path].create_dataset('HH', data=vh)
+                        del vh
+
+                        hv = root_ds[f'{hv_path}/HV']
+                        del root_ds[f'{hv_path}/HV']
+
+                        vv = root_ds[f'{vv_path}/VV']
+                        del root_ds[f'{vv_path}/VV']
+
+                        root_ds[vv_path].create_dataset('VV', data=hv)
+                        del hv
+                        root_ds[hv_path].create_dataset('HV', data=vv)
+                        del vv
+
+                        tx_h_path = ('/science/LSAR/RRSD/swaths/'
+                                     'frequencyA/txH')
+                        tx_h_slant_range_path = ('/science/LSAR/RRSD/swaths/'
+                                                 'frequencyA/txH/slantRange')
+                        tx_v_path = ('/science/LSAR/RRSD/swaths/'
+                                     'frequencyA/txV')
+                        tx_v_slant_range_path = ('/science/LSAR/RRSD/swaths/'
+                                                 'frequencyA/txV/slantRange')
+
+                        tx_h_slant_range = root_ds[tx_h_slant_range_path]
+                        tx_v_slant_range = root_ds[tx_v_slant_range_path]
+
+                        del root_ds[tx_h_slant_range_path]
+                        root_ds[tx_h_path].create_dataset(
+                            'slantRange', data=tx_v_slant_range)
+
+                        del root_ds[tx_v_slant_range_path]
+                        root_ds[tx_v_path].create_dataset(
+                            'slantRange', data=tx_h_slant_range)
+
+                        return
+
+                    self.print('swapping polarizations HH and VH in freq. A')
+                    with plant.PlantIndent():
+                        self.swap_pol_recursive(root_ds, key='/',
+                                                pol_1='HH',
+                                                pol_2='VH',
+                                                exclude_string=exclude_string)
+                    self.print('swapping polarizations HV and VV in freq. A')
+                    with plant.PlantIndent():
+                        self.swap_pol_recursive(root_ds, key='/',
+                                                pol_1='HV',
+                                                pol_2='VV',
+                                                exclude_string=exclude_string)
+
             print(f'# file saved: {self.output_file}')
 
     def save_all_layers(self, nisar_product_obj, plant_product_obj,
@@ -393,12 +488,21 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
         self.output_file = os.path.join(self.output_dir,
                                         f'{prefix}mask{suffix}.{ext}')
+
+        if nisar_product_obj.productType == 'STATIC':
+            for static_layer in LIST_OF_STATIC_LAYERS:
+                self.output_file = os.path.join(
+                    self.output_dir,
+                    f'{prefix}{static_layer}{suffix}.{ext}')
+                self.save_nisar_layer(static_layer, nisar_product_obj)
+            return
+
         self.save_mask(nisar_product_obj)
 
         if nisar_product_obj.productType == 'GCOV':
             self.output_file = os.path.join(
                 self.output_dir,
-                f'{prefix}rtcGammaToSigma{suffix}.{ext}')
+                f'{prefix}rtcGammaToSigmaFactor{suffix}.{ext}')
             self.save_nisar_layer('rtcGammaToSigmaFactor', nisar_product_obj)
 
             self.output_file = os.path.join(
@@ -631,7 +735,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         plant.append_output_file(self.output_file)
 
     def get_grids_ref(self, layer_name, nisar_product_obj, image_obj,
-                      valid_products=['GCOV', 'GSLC']):
+                      valid_products=['GCOV', 'GSLC', 'STATIC']):
         if image_obj is not None:
             return image_obj
         if nisar_product_obj.productType not in valid_products:
@@ -641,8 +745,11 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             print(error_msg)
             raise ValueError(error_msg)
 
-        grid_path = (f'{nisar_product_obj.GridPath}'
-                     f'/frequency{self.frequency}/{layer_name}')
+        if nisar_product_obj.productType == 'STATIC':
+            grid_path = (f'{nisar_product_obj.GridPath}/{layer_name}')
+        else:
+            grid_path = (f'{nisar_product_obj.GridPath}'
+                         f'/frequency{self.frequency}/{layer_name}')
         image_ref = f'NETCDF:{self.input_file}:{grid_path}'
 
         return image_ref
@@ -817,6 +924,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
     def add_polygon(self, fp, polygon):
         fp.write('<Placemark>\n')
         fp.write('    <name>Swath Polygon</name>\n')
+        fp.write('    <visibility>0</visibility>\n')
         fp.write('    <Polygon>\n')
         fp.write('      <extrude>1</extrude>\n')
         fp.write('      <altitudeMode>relativeToGround</altitudeMode>\n')
@@ -924,8 +1032,30 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         fp.write('</Placemark> \n')
         fp.write('</Folder> \n')
 
+    def move_pol_recursive(self, hdf_obj: h5py.Group, key: str, input_pol: str,
+                           output_pol: str, exclude_string: str = ''):
+        self.print(f'copying pol "{input_pol}" to pol "{output_pol}"')
+        with plant.PlantIndent():
+            self.copy_pol_recursive(hdf_obj, key, input_pol, output_pol,
+                                    exclude_string)
+        self.print(f'removing pol "{input_pol}"')
+        with plant.PlantIndent():
+            self.remove_pol_recursive(hdf_obj, key, input_pol, exclude_string)
+
+    def swap_pol_recursive(self, hdf_obj: h5py.Group, key: str, pol_1: str,
+                           pol_2: str, exclude_string: str = ''):
+        self.print(f'moving pol "{pol_1}" to temporary pol "XX"')
+        with plant.PlantIndent():
+            self.move_pol_recursive(hdf_obj, key, pol_1, 'XX', exclude_string)
+        self.print(f'moving pol "{pol_2}" to pol "{pol_1}"')
+        with plant.PlantIndent():
+            self.move_pol_recursive(hdf_obj, key, pol_2, pol_1, exclude_string)
+        self.print(f'moving temporary pol "XX" to pol "{pol_2}"')
+        with plant.PlantIndent():
+            self.move_pol_recursive(hdf_obj, key, 'XX', pol_2, exclude_string)
+
     def copy_pol_recursive(self, hdf_obj: h5py.Group, key: str, input_pol: str,
-                           output_pol: str):
+                           output_pol: str, exclude_string: str = ''):
 
         h5_element = hdf_obj[key]
 
@@ -955,33 +1085,39 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         if isinstance(h5_element, h5py.Group):
 
             for sub_key in h5_element.keys():
+                if exclude_string and exclude_string in sub_key:
+                    self.print(f'*** skipping: {exclude_string}')
+                    continue
                 self.copy_pol_recursive(h5_element, sub_key, input_pol,
-                                        output_pol)
+                                        output_pol, exclude_string)
 
         elif input_pol in POL_LIST and key == 'listOfPolarizations':
             list_of_polarizations = h5_element[()]
+            self.print(f'*** H5 path: {h5_element.name}')
             print('input list_of_polarizations:', list_of_polarizations)
             flag_input_pol_found = any([pol.decode() == input_pol
                                         for pol in list_of_polarizations])
 
             if not flag_input_pol_found:
                 print(f'WARNING input pol {input_pol} not found in the list'
-                      f'of polarization at: "{h5_element.name}"')
+                      f' of polarization at: "{h5_element.name}"')
                 return
             flag_output_pol_found = any([pol.decode() == output_pol
                                         for pol in list_of_polarizations])
 
             if flag_output_pol_found:
                 print(f'WARNING output pol {output_pol} already exists in list'
-                      f'of polarization at: "{h5_element.name}"')
+                      f' of polarization at: "{h5_element.name}"')
                 return
-            list_of_polarizations = np.sort(np.append(list_of_polarizations,
-                                            np.bytes_(output_pol)))
+            list_of_polarizations = \
+                np.sort([pol for pol in list_of_polarizations] +
+                        [np.bytes_(output_pol)])
             print('output list_of_polarizations:', list_of_polarizations)
             del hdf_obj[key]
             hdf_obj.create_dataset(key, data=list_of_polarizations)
 
-    def remove_pol_recursive(self, hdf_obj: h5py.Group, key: str, pol: str):
+    def remove_pol_recursive(self, hdf_obj: h5py.Group, key: str, pol: str,
+                             exclude_string: str = ''):
 
         h5_element = hdf_obj[key]
 
@@ -993,9 +1129,13 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         if isinstance(h5_element, h5py.Group):
 
             for sub_key in h5_element.keys():
-                self.remove_pol_recursive(h5_element, sub_key, pol)
+                if exclude_string and exclude_string in sub_key:
+                    continue
+                self.remove_pol_recursive(h5_element, sub_key, pol,
+                                          exclude_string)
 
         elif pol in POL_LIST and key == 'listOfPolarizations':
+            self.print(f'*** H5 path: {h5_element.name}')
             list_of_polarizations = h5_element[()]
             list_of_polarizations_decoded = \
                 [p.decode() for p in list_of_polarizations]
@@ -1011,8 +1151,10 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             print('output list_of_polarizations:',
                   list_of_polarizations_decoded)
             del hdf_obj[key]
+            new_list_of_polarizations = \
+                [np.bytes_(pol) for pol in list_of_polarizations_decoded]
             hdf_obj.create_dataset(
-                key, data=np.bytes_(list_of_polarizations_decoded))
+                key, data=new_list_of_polarizations)
 
 
 def get_datetime_from_isoformat(ref_epoch):

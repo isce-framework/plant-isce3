@@ -85,6 +85,8 @@ def get_parser():
 
     parser.add_argument('--out-projection-angle',
                         '--out-psi-angle',
+                        '--out-local-projection-angle',
+                        '--out-local-psi-angle',
                         action='store_true',
                         dest='flag_projection_angle',
                         help='Save the projection angle')
