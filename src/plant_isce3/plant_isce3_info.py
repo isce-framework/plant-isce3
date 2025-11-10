@@ -63,6 +63,11 @@ def get_parser():
                               epsg=1,
                               orbit_files=1)
 
+    parser.add_argument('--all',
+                        dest='show_all',
+                        action='store_true',
+                        help='Show all information (except stats)')
+
     return parser
 
 
@@ -121,6 +126,69 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
         for key, value in burst_id_dict.items():
             print(f'## burst(s) in subswath {key}:', value)
 
+    def verify_geolocation_lut(self, product_type,
+                               h5_obj, lut_group_path, lut_name,
+                               y_coordinates_str, x_coordinates_str,
+                               y0, yf, dy, x0, xf, dx,
+                               coordinate_y_descr,
+                               coordinate_x_descr):
+
+        if (f'{lut_group_path}/{y_coordinates_str}' not in
+                h5_obj[lut_group_path]):
+            lut_group_parent_path = '/'.join(lut_group_path.split('/')[:-1])
+            print(f'*** path {y_coordinates_str} not found, retrying it with'
+                  f' {lut_group_parent_path}/{y_coordinates_str}')
+            y_coordinates = h5_obj[
+                f'{lut_group_parent_path}/{y_coordinates_str}'][()]
+        else:
+            y_coordinates = h5_obj[
+                f'{lut_group_path}/{y_coordinates_str}'][()]
+        x_coordinates = h5_obj[
+            f'{lut_group_path}/{x_coordinates_str}'][()]
+
+        lut_y0 = y_coordinates[0]
+        lut_yf = y_coordinates[-1]
+
+        lut_x0 = x_coordinates[0]
+        lut_xf = x_coordinates[-1]
+
+        lut_y0_index = (lut_y0 - y0) / dy
+        lut_yf_index = (lut_yf - yf) / dy
+        lut_x0_index = (lut_x0 - x0) / dx
+        lut_xf_index = (lut_xf - xf) / dx
+
+        lut_y0_status = '[ OK ]' if dy / \
+            abs(dy) * lut_y0_index < 0 else '[FAIL]'
+        lut_yf_status = '[ OK ]' if dy / \
+            abs(dy) * lut_yf_index > 0 else '[FAIL]'
+
+        lut_x0_status = '[ OK ]' if lut_x0_index < 0 else '[FAIL]'
+        lut_xf_status = '[ OK ]' if lut_xf_index > 0 else '[FAIL]'
+
+        print(f'{lut_name}:')
+
+        with plant.PlantIndent():
+
+            if (product_type != 'RSLC' or
+                    'noiseEquivalentBackscatter' not in lut_group_path):
+                print(f'{lut_y0_status} start {coordinate_y_descr}'
+                      f' (lut_y0 - y0) / dy = lut_y0_index => '
+                      f' ({lut_y0} - {y0}) / {dy} ='
+                      f' {lut_y0_index}')
+                print(f'{lut_yf_status} end {coordinate_y_descr}'
+                      f' (lut_yf - yf) / dy = lut_yf_index => '
+                      f' ({lut_yf} - {yf}) / {dy} ='
+                      f' {lut_yf_index}')
+
+            print(f'{lut_x0_status} start {coordinate_x_descr}'
+                  f' (lut_x0 - x0) / dy = lut_x0_index => '
+                  f' ({lut_x0} - {x0}) / {dx} ='
+                  f' {lut_x0_index}')
+            print(f'{lut_xf_status} end {coordinate_x_descr}'
+                  f' (lut_xf - xf) / dy = lut_xf_index => '
+                  f' ({lut_xf} - {xf}) / {dx} ='
+                  f' {lut_xf_index}')
+
     def _print_nisar_product_info(self):
         import shapely.wkt
         nisar_product_obj = open_product(self.input_file)
@@ -164,20 +232,24 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
             swaths_base_path = nisar_product_obj.SwathPath
             image_path = nisar_product_obj.SwathPath
 
-        pri_path = (f'{swaths_base_path}/zeroDopplerTimeSpacing')
-
-        pri = h5_obj[pri_path][()]
+        if nisar_product_obj.productType != 'RRSD':
+            pri_path = (f'{swaths_base_path}/zeroDopplerTimeSpacing')
+            pri = h5_obj[pri_path][()]
 
         print('## other parameters:')
         with plant.PlantIndent():
-            print(f'pulse repetition interval (PRI) [us]: {pri * 1e6}')
-            print(f'pulse repetition frequency (PRF) [Hz]: {1. / pri}')
+            if nisar_product_obj.productType != 'RRSD':
+                print(f'pulse repetition interval (PRI) [us]: {pri * 1e6}')
+                print(f'pulse repetition frequency (PRF) [Hz]: {1. / pri}')
 
             self.print_h5_parameters(h5_obj,
                                      nisar_product_obj.IdentificationPath,
                                      IDENTIFICATION_DICT)
 
             for frequency in freq_pol_dict.keys():
+                if nisar_product_obj.productType == 'RRSD':
+                    continue
+
                 print(f'## frequency {frequency}')
 
                 freq_swaths_path = (f'{swaths_base_path}/'
@@ -214,6 +286,88 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
 
                     self.print_h5_parameters(h5_obj, freq_swaths_path,
                                              FREQ_SWATH_DICT)
+
+        if self.show_all and nisar_product_obj.productType == 'RSLC':
+            print('## Image and look-up tables (LUTs) extents:')
+            with plant.PlantIndent():
+
+                for frequency in freq_pol_dict.keys():
+                    print(f'## frequency {frequency}')
+
+                    with plant.PlantIndent():
+
+                        if nisar_product_obj.productType == 'RSLC':
+                            image_group_path = (f'{swaths_base_path}/'
+                                                f'frequency{frequency}')
+                            y_coordinates_str = 'zeroDopplerTime'
+                            x_coordinates_str = 'slantRange'
+                            coordinate_y_descr = 'azimuth time [s]'
+                            coordinate_x_descr = 'slant range [m]'
+                            y_coordinates = h5_obj[
+                                f'{swaths_base_path}/{y_coordinates_str}'][()]
+                        else:
+
+                            image_group_path = \
+                                f'{image_path}/frequency{frequency}/'
+                            y_coordinates_str = 'yCoordinates'
+                            x_coordinates_str = 'xCoordinates'
+                            coordinate_y_descr = 'Y coordinates [m]'
+                            coordinate_x_descr = 'X coordinates [m]'
+
+                            y_coordinates = h5_obj[
+                                f'{image_group_path}/{y_coordinates_str}'][()]
+
+                        x_coordinates = h5_obj[
+                            f'{image_group_path}/{x_coordinates_str}'][()]
+
+                        y0 = y_coordinates[0]
+                        yf = y_coordinates[-1]
+                        dy = y_coordinates[1] - y_coordinates[0]
+
+                        x0 = x_coordinates[0]
+                        xf = x_coordinates[-1]
+                        dx = x_coordinates[1] - x_coordinates[0]
+
+                        print('imagery:')
+                        with plant.PlantIndent():
+                            print(f'y: [{y0}, {yf}], dx: {dy}')
+                            print(f'x: [{x0}, {xf}], dy: {dx}')
+
+                        lut_list = [
+
+                            [f'{metadata_path}/geolocationGrid/',
+                             'geolocationGrid'],
+
+                            [f'{metadata_path}/calibrationInformation/'
+                             f'frequency{frequency}/elevationAntennaPattern',
+                             f'frequency{frequency}/elevationAntennaPattern'],
+
+                            [f'{metadata_path}/calibrationInformation/'
+                             f'frequency{frequency}/'
+                             'noiseEquivalentBackscatter',
+                             f'frequency{frequency}/'
+                             'noiseEquivalentBackscatter'],
+
+                            [f'{metadata_path}/processingInformation/'
+                             f'parameters/frequency{frequency}',
+                             f'frequency{frequency}/processingInformation/'
+                             'dopplerCentroid'],
+
+                            [f'{metadata_path}/calibrationInformation/'
+                             'geometry',
+                             'geometry'],
+
+                        ]
+
+                        for lut_group_path, lut_name in lut_list:
+
+                            self.verify_geolocation_lut(
+                                nisar_product_obj.productType,
+                                h5_obj, lut_group_path, lut_name,
+                                y_coordinates_str, x_coordinates_str,
+                                y0, yf, dy, x0, xf, dx,
+                                coordinate_y_descr,
+                                coordinate_x_descr)
 
         h5_obj.close()
 
@@ -303,7 +457,10 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                     value = value.decode()
             else:
                 value = dtype(factor * h5_dataset[()])
-            print(f'{text}: {value}')
+            if text.startswith('processed range bandwidth'):
+                print(f'## {text}: {value}')
+            else:
+                print(f'{text}: {value}')
 
 
 def lat_lon_to_projected(north, east, epsg):
