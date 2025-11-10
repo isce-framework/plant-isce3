@@ -105,6 +105,13 @@ def get_parser():
                        action='store_true',
                        help=("Extract product's imagery"))
 
+    group.add_argument('--masked-data',
+                       '--masked-images',
+                       dest='masked_data_file',
+                       action='store_true',
+                       help=("Extract product's imagery and apply valid data"
+                             " mask"))
+
     group.add_argument('--mask',
                        '--mask-layer',
                        dest='mask_file',
@@ -370,7 +377,11 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             self.save_nisar_layer('numberOfLooks', nisar_product_obj)
 
         elif self.data_file:
-            self.save_data(plant_product_obj)
+            self.save_data(plant_product_obj, nisar_product_obj)
+
+        elif self.masked_data_file:
+            self.save_data(plant_product_obj, nisar_product_obj,
+                           masked=True)
 
         elif self.runconfig_file:
             self.save_runconfig_file(nisar_product_obj)
@@ -380,28 +391,37 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
                 input_file_obj = h5py.File(self.input_file, 'r')
                 input_file_obj.close()
+                output_dir = os.path.dirname(self.output_file)
+                if output_dir:
+                    os.makedirs(output_dir, exist_ok=True)
                 shutil.copyfile(self.input_file, self.output_file)
+
+            product_type = nisar_product_obj.productType
 
             if self.copy_pol:
                 with h5py.File(self.output_file, 'a') as root_ds:
                     self.copy_pol_recursive(root_ds, key='/',
                                             input_pol=self.copy_pol[0],
-                                            output_pol=self.copy_pol[1])
+                                            output_pol=self.copy_pol[1],
+                                            product_type=product_type)
                     print('done')
 
             if self.remove_pol:
                 with h5py.File(self.output_file, 'a') as root_ds:
                     self.remove_pol_recursive(root_ds, key='/',
-                                              pol=self.remove_pol)
+                                              pol=self.remove_pol,
+                                              product_type=product_type)
                     print('done')
 
             if self.move_pol:
                 with h5py.File(self.output_file, 'a') as root_ds:
                     self.copy_pol_recursive(root_ds, key='/',
                                             input_pol=self.move_pol[0],
-                                            output_pol=self.move_pol[1])
+                                            output_pol=self.move_pol[1],
+                                            product_type=product_type)
                     self.remove_pol_recursive(root_ds, key='/',
-                                              pol=self.move_pol[0])
+                                              pol=self.move_pol[0],
+                                              product_type=product_type)
                     print('done')
 
             if self.swap_quad_pol:
@@ -459,17 +479,20 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                         return
 
                     self.print('swapping polarizations HH and VH in freq. A')
+                    product_type = nisar_product_obj.productType
                     with plant.PlantIndent():
                         self.swap_pol_recursive(root_ds, key='/',
                                                 pol_1='HH',
                                                 pol_2='VH',
-                                                exclude_string=exclude_string)
+                                                exclude_string=exclude_string,
+                                                product_type=product_type)
                     self.print('swapping polarizations HV and VV in freq. A')
                     with plant.PlantIndent():
                         self.swap_pol_recursive(root_ds, key='/',
                                                 pol_1='HV',
                                                 pol_2='VV',
-                                                exclude_string=exclude_string)
+                                                exclude_string=exclude_string,
+                                                product_type=product_type)
 
             print(f'# file saved: {self.output_file}')
 
@@ -491,10 +514,24 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
         if nisar_product_obj.productType == 'STATIC':
             for static_layer in LIST_OF_STATIC_LAYERS:
+
                 self.output_file = os.path.join(
                     self.output_dir,
                     f'{prefix}{static_layer}{suffix}.{ext}')
+
+                if 'layoverShadowMask' in static_layer:
+
+                    self.save_layover_shadow_mask(
+                        nisar_product_obj=nisar_product_obj)
+                    continue
+                if 'waterMask' in static_layer:
+
+                    self.save_binary_water_mask(
+                        nisar_product_obj=nisar_product_obj)
+                    continue
+
                 self.save_nisar_layer(static_layer, nisar_product_obj)
+
             return
 
         self.save_mask(nisar_product_obj)
@@ -587,7 +624,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             self.output_file = os.path.join(self.output_dir,
                                             f'{prefix}data'
                                             f'{suffix}.{ext}')
-            self.save_data(plant_product_obj)
+            self.save_data(plant_product_obj, nisar_product_obj)
 
     def run_raster_as_input(self):
         image_obj = plant.read_image(self.input_file)
@@ -699,14 +736,36 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         self.save_image(image_list, output_file=self.output_file)
         plant.append_output_file(self.output_file)
 
-    def save_data(self, plant_product_obj):
+    def save_data(self, plant_product_obj, nisar_product_obj,
+                  masked=False):
 
-        input_raster = self.get_input_raster_from_nisar_slc(
+        input_raster = self.get_input_raster_from_nisar_product(
             input_raster=None,
             plant_product_obj=plant_product_obj)
 
-        self.save_image(input_raster, output_file=self.output_file,
-                        force=True)
+        if masked:
+            image_ref = self.get_grids_ref(
+                'mask', nisar_product_obj, image_obj=None,
+                valid_products=['GCOV', 'GSLC'])
+
+            image_obj = self.read_image(image_ref)
+
+            mask_array_obj = plant.filter_data(image_obj,
+                                               nlooks=[self.nlooks_az,
+                                                       self.nlooks_rg])
+            del image_obj
+
+            mask_array_obj.image = np.asarray(mask_array_obj.image,
+                                              dtype=np.uint8)
+
+            valid = ((mask_array_obj.image > 0) & (mask_array_obj.image < 10))
+
+            plant.util(input_raster, output_file=self.output_file,
+                       input_mask=valid, force=True)
+
+        else:
+            self.save_image(input_raster, output_file=self.output_file,
+                            force=True)
 
         plant.append_output_file(self.output_file)
 
@@ -787,6 +846,18 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
         self.save_image(image_obj, output_file=self.output_file,
                         out_null=255, ctable=layover_shadow_mask_ctable)
+        plant.append_output_file(self.output_file)
+
+    def save_binary_water_mask(self, nisar_product_obj=None,
+                               image_obj=None):
+
+        image_obj = self.get_grids_ref('waterMask', nisar_product_obj,
+                                       image_obj)
+
+        binary_water_mask_ctable = self.get_binary_water_mask_ctable()
+
+        self.save_image(image_obj, output_file=self.output_file,
+                        out_null=255, ctable=binary_water_mask_ctable)
         plant.append_output_file(self.output_file)
 
     def save_lut(self, h5_path, pol_list=[], flag_skip_if_error=True):
@@ -1033,29 +1104,36 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         fp.write('</Folder> \n')
 
     def move_pol_recursive(self, hdf_obj: h5py.Group, key: str, input_pol: str,
-                           output_pol: str, exclude_string: str = ''):
+                           output_pol: str, exclude_string: str = '',
+                           product_type: str = ''):
         self.print(f'copying pol "{input_pol}" to pol "{output_pol}"')
         with plant.PlantIndent():
             self.copy_pol_recursive(hdf_obj, key, input_pol, output_pol,
-                                    exclude_string)
+                                    exclude_string, product_type)
         self.print(f'removing pol "{input_pol}"')
         with plant.PlantIndent():
-            self.remove_pol_recursive(hdf_obj, key, input_pol, exclude_string)
+            self.remove_pol_recursive(hdf_obj, key, input_pol, exclude_string,
+                                      product_type)
 
     def swap_pol_recursive(self, hdf_obj: h5py.Group, key: str, pol_1: str,
-                           pol_2: str, exclude_string: str = ''):
+                           pol_2: str, exclude_string: str = '',
+                           product_type: str = ''):
         self.print(f'moving pol "{pol_1}" to temporary pol "XX"')
         with plant.PlantIndent():
-            self.move_pol_recursive(hdf_obj, key, pol_1, 'XX', exclude_string)
+            self.move_pol_recursive(hdf_obj, key, pol_1, 'XX', exclude_string,
+                                    product_type)
         self.print(f'moving pol "{pol_2}" to pol "{pol_1}"')
         with plant.PlantIndent():
-            self.move_pol_recursive(hdf_obj, key, pol_2, pol_1, exclude_string)
+            self.move_pol_recursive(hdf_obj, key, pol_2, pol_1, exclude_string,
+                                    product_type)
         self.print(f'moving temporary pol "XX" to pol "{pol_2}"')
         with plant.PlantIndent():
-            self.move_pol_recursive(hdf_obj, key, 'XX', pol_2, exclude_string)
+            self.move_pol_recursive(hdf_obj, key, 'XX', pol_2, exclude_string,
+                                    product_type)
 
     def copy_pol_recursive(self, hdf_obj: h5py.Group, key: str, input_pol: str,
-                           output_pol: str, exclude_string: str = ''):
+                           output_pol: str, exclude_string: str = '',
+                           product_type: str = ''):
 
         h5_element = hdf_obj[key]
 
@@ -1089,7 +1167,15 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                     self.print(f'*** skipping: {exclude_string}')
                     continue
                 self.copy_pol_recursive(h5_element, sub_key, input_pol,
-                                        output_pol, exclude_string)
+                                        output_pol, exclude_string,
+                                        product_type)
+                if product_type == 'GCOV':
+
+                    self.copy_pol_recursive(h5_element, sub_key,
+                                            f'{input_pol}{input_pol}',
+                                            f'{output_pol}{output_pol}',
+                                            exclude_string,
+                                            product_type='')
 
         elif input_pol in POL_LIST and key == 'listOfPolarizations':
             list_of_polarizations = h5_element[()]
@@ -1117,12 +1203,18 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             hdf_obj.create_dataset(key, data=list_of_polarizations)
 
     def remove_pol_recursive(self, hdf_obj: h5py.Group, key: str, pol: str,
-                             exclude_string: str = ''):
+                             exclude_string: str = '',
+                             product_type: str = ''):
 
         h5_element = hdf_obj[key]
 
         if key == pol:
             path = f'{hdf_obj.name}/{pol}'
+            del hdf_obj[path]
+            return
+
+        if product_type == 'GCOV' and f'{key}{key}' == pol:
+            path = f'{hdf_obj.name}/{pol}{pol}'
             del hdf_obj[path]
             return
 
@@ -1132,7 +1224,8 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                 if exclude_string and exclude_string in sub_key:
                     continue
                 self.remove_pol_recursive(h5_element, sub_key, pol,
-                                          exclude_string)
+                                          exclude_string,
+                                          product_type)
 
         elif pol in POL_LIST and key == 'listOfPolarizations':
             self.print(f'*** H5 path: {h5_element.name}')

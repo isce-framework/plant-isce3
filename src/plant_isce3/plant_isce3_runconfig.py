@@ -189,6 +189,8 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
                     self.print_runconfig(x0, y0, xf, yf, freq_a_dx, freq_a_dy,
                                          freq_b_dx, freq_b_dy,
                                          file=output_file_obj)
+                self.print(f'## file saved: {self.output_file}')
+                plant.append_output_file(self.output_file)
 
             return
 

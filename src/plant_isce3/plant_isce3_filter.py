@@ -233,7 +233,7 @@ class PlantIsce3Filter(plant_isce3.PlantIsce3Script):
         if plant_product_obj.sensor_name != 'NISAR':
             raise NotImplementedError
 
-        input_raster = self.get_input_raster_from_nisar_slc(
+        input_raster = self.get_input_raster_from_nisar_product(
             plant_product_obj=plant_product_obj)
 
         pols = None

@@ -192,7 +192,7 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
                 flag_transform_input_raster=self.flag_transform_input_raster)
 
         else:
-            input_raster = self.get_input_raster_from_nisar_slc(
+            input_raster = self.get_input_raster_from_nisar_product(
                 plant_product_obj=plant_product_obj)
 
         input_raster_obj = plant_isce3.get_isce3_raster(input_raster)

@@ -4,6 +4,7 @@ import time
 import datetime
 import json
 import gc
+import configparser
 
 import plant_isce3
 import importlib
@@ -472,8 +473,11 @@ def multilook_isce3(input_raster_file, output_file,
     if nlooks_x is None:
         nlooks_x = 1
 
-    width_ml = int(input_raster.width // nlooks_x)
-    length_ml = int(input_raster.length // nlooks_y)
+    width = input_raster.width
+    length = input_raster.length
+
+    width_ml = int(width // nlooks_x)
+    length_ml = int(length // nlooks_y)
 
     exponent = 2 if transform_square else 0
 
@@ -505,9 +509,9 @@ def multilook_isce3(input_raster_file, output_file,
         block_nlines = int(np.ceil(float(block_nlines) / nlooks_y) *
                            nlooks_y)
 
-        n_blocks = int(np.ceil(float(input_raster.length) / block_nlines))
+        n_blocks = int(np.ceil(float(length) / block_nlines))
     else:
-        block_nlines = input_raster.length
+        block_nlines = length
         n_blocks = 1
 
     if verbose:
@@ -522,7 +526,7 @@ def multilook_isce3(input_raster_file, output_file,
 
                 start_line = block_nlines * block
                 end_line = min([block_nlines * (block + 1),
-                                input_raster.length + 1])
+                                length + 1])
                 block_array = input_raster.get_block(
                     key=np.s_[start_line:end_line, :],
                     band=band + 1)
@@ -573,6 +577,8 @@ def multilook_isce3(input_raster_file, output_file,
 
     output_gdal_ds = gdal.Open(output_file, gdal.GA_Update)
     plant_geogrid_obj = plant.get_coordinates(geotransform=geotransform,
+                                              width=width,
+                                              length=length,
                                               projection=projection)
     if plant_geogrid_obj.has_valid_coordinates():
 
@@ -595,6 +601,34 @@ def multilook_isce3(input_raster_file, output_file,
     output_gdal_ds.Close()
 
     del output_gdal_ds
+
+
+def load_aws_credentials(profile="default"):
+
+    credentials_path = os.path.expanduser("~/.aws/credentials")
+
+    if not os.path.exists(credentials_path):
+        raise FileNotFoundError('AWS credentials file not found:'
+                                f' {credentials_path}')
+
+    config = configparser.ConfigParser()
+    config.read(credentials_path)
+
+    if profile not in config:
+        raise ValueError(f"Profile '{profile}' not found in"
+                         f" {credentials_path}")
+
+    creds = {
+        "aws_access_key_id": config[profile].get("aws_access_key_id"),
+        "aws_secret_access_key": config[profile].get("aws_secret_access_key"),
+        "region_name": config[profile].get("region", "us-east-1"),
+
+    }
+
+    if "aws_session_token" in config[profile]:
+        creds["aws_session_token"] = config[profile]["aws_session_token"]
+
+    return creds
 
 
 def apply_slc_corrections(burst_in,
@@ -1571,11 +1605,11 @@ class PlantIsce3Script(plant.PlantScript):
             self.save_image(image_obj, temp_file, force=True,
                             output_format=output_format)
 
-    def get_input_raster_from_nisar_slc(self, *args, **kwargs):
+    def get_input_raster_from_nisar_product(self, *args, **kwargs):
 
         with plant.PlantIndent():
-            input_raster = self._get_input_raster_from_nisar_slc(*args,
-                                                                 **kwargs)
+            input_raster = self._get_input_raster_from_nisar_product(*args,
+                                                                     **kwargs)
 
         return input_raster
 
@@ -1605,9 +1639,9 @@ class PlantIsce3Script(plant.PlantScript):
 
         return nlooks_y, nlooks_x
 
-    def _get_input_raster_from_nisar_slc(self, input_raster=None,
-                                         input_file=None,
-                                         plant_product_obj=None):
+    def _get_input_raster_from_nisar_product(self, input_raster=None,
+                                             input_file=None,
+                                             plant_product_obj=None):
 
         if (input_raster is None and
                 getattr(self, 'input_raster', None) is not None):
@@ -1793,6 +1827,17 @@ class PlantIsce3Script(plant.PlantScript):
             radar_grid_ml = radar_grid
 
         return radar_grid_ml
+
+    def get_binary_water_mask_ctable(self):
+        mask_ctable = gdal.ColorTable()
+
+        mask_ctable.SetColorEntry(0, (0, 0, 255))
+
+        mask_ctable.SetColorEntry(1, (255, 255, 255))
+
+        mask_ctable.SetColorEntry(255, (0, 0, 0))
+
+        return mask_ctable
 
     def get_mask_ctable(self, mask_array):
         mask_ctable = gdal.ColorTable()

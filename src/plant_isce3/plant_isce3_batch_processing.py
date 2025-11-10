@@ -14,8 +14,6 @@ import boto3
 import glob
 import pickle
 
-import configparser
-
 res_deg_dict = {'A': 1.0 / 3600,
                 'B': 1.0 / 3600}
 
@@ -554,7 +552,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                                'B': {}}
 
         if flag_s3_bucket:
-            creds = load_aws_credentials('saml-pub')
+            creds = plant_isce3.load_aws_credentials('saml-pub')
 
             resource = boto3.resource('s3', **creds)
 
@@ -1069,34 +1067,6 @@ def load_aws_credentials_boto3(profile="default"):
     if frozen_creds.token:
         driver_kwds["session_token"] = frozen_creds.token.encode()
     return driver_kwds
-
-
-def load_aws_credentials(profile="default"):
-
-    credentials_path = os.path.expanduser("~/.aws/credentials")
-
-    if not os.path.exists(credentials_path):
-        raise FileNotFoundError('AWS credentials file not found:'
-                                f' {credentials_path}')
-
-    config = configparser.ConfigParser()
-    config.read(credentials_path)
-
-    if profile not in config:
-        raise ValueError(f"Profile '{profile}' not found in"
-                         f" {credentials_path}")
-
-    creds = {
-        "aws_access_key_id": config[profile].get("aws_access_key_id"),
-        "aws_secret_access_key": config[profile].get("aws_secret_access_key"),
-        "region_name": config[profile].get("region", "us-east-1"),
-
-    }
-
-    if "aws_session_token" in config[profile]:
-        creds["aws_session_token"] = config[profile]["aws_session_token"]
-
-    return creds
 
 
 def get_product_type(h5_obj):
