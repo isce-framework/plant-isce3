@@ -4,6 +4,7 @@ import isce3
 from isce3.focus import RadarPoint, RadarBoundingBox
 import logging
 from plant_isce3.readers import Base
+from plant_isce3.readers.Base import open_h5_file
 import numpy as np
 import pyre
 import journal
@@ -56,7 +57,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
 
         txpat = re.compile("^tx[HVLR]$")
         rxpat = re.compile("^rx[HV]$")
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as fid:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as fid:
             for freq in frequencyList:
                 group = fid[f"{self.SwathPath}/frequency{freq}"]
                 tx = [x[2] for x in group.keys() if txpat.match(x)]
@@ -92,7 +93,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         '''
         Return raw dataset of given frequency and polarization from hdf5 file
         '''
-        fid = h5py.File(self.filename, 'r', libver='latest', swmr=True)
+        fid = open_h5_file(self.filename, 'r', libver='latest', swmr=True)
         path = self.rawPath(frequency, polarization)
         return DataDecoder(fid[path])
 
@@ -124,7 +125,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         T : float
             chirp duration in s
         """
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             group = f[self._pulseMetaPath(frequency=frequency, tx=tx)]
             T = group["chirpDuration"][()]
             K = group["chirpSlope"][()]
@@ -179,7 +180,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         
         """
         tx_path = self._pulseMetaPath(frequency=frequency, tx=tx)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             return f[tx_path]["rangeBandwidth"][()]
         
     @property
@@ -190,19 +191,19 @@ class RawBase(Base, family='nisar.productreader.raw'):
     # XXX L0B doesn't put orbit in MetadataPath
     def getOrbit(self):
         path = f"{self.TelemetryPath}/orbit"
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             orbit = isce3.core.load_orbit_from_h5_group(f[path])
         return orbit
 
     def getAttitude(self):
         path = f"{self.TelemetryPath}/attitude"
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             q = isce3.core.Attitude.load_from_h5(f[path])
         return q
 
     def getRanges(self, frequency='A', tx='H'):
         path = self._pulseMetaPath(frequency=frequency, tx=tx)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             group = f[path]
             r = np.asarray(group["slantRange"])
             dr = group["slantRangeSpacing"][()]
@@ -245,7 +246,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if tx is None:
             tx = self.polarizations[frequency][0][0]
         txpath = self.TransmitPath(frequency, tx)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             # FIXME product spec changed UTCTime -> UTCtime
             name = find_case_insensitive(f[txpath], "UTCtime")
             t = np.asarray(f[txpath][name])
@@ -317,7 +318,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if tx is None:
             tx = self.polarizations[frequency][0][0]
         path = self._pulseMetaPath(frequency=frequency, tx=tx)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             return f[path]["centerFrequency"][()]
 
     def getListOfTxTRMs(self, frequency: str = 'A', tx: str = None):
@@ -341,7 +342,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if tx is None:
             tx = self.polarizations[frequency][0][0]
         path = self._pulseMetaPath(frequency=frequency, tx=tx)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             return f[path]["listOfTxTRMs"][()]
 
     def getListOfRxTRMs(self, frequency: str, polarization: str):
@@ -363,7 +364,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         """
 
         path = self._rawGroup(frequency, polarization)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             return f[path]["listOfRxTRMs"][()]
 
     def getRangeLineIndex(self, frequency: str = 'A', tx: str = None):
@@ -395,7 +396,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if tx is None:
             tx = self.polarizations[frequency][0][0]
         path = self._pulseMetaPath(frequency=frequency, tx=tx)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             return f[path]["rangeLineIndex"][()]
 
 
@@ -421,7 +422,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if tx is None:
             tx = self.polarizations[frequency][0][0]
         path = self._pulseMetaPath(frequency=frequency, tx=tx)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             return f[path]["calType"][()]
 
     def getChirpCorrelator(self, frequency: str = 'A', tx: str = None):
@@ -446,7 +447,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if tx is None:
             tx = self.polarizations[frequency][0][0]
         path = self._pulseMetaPath(frequency=frequency, tx=tx)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             return f[path]["chirpCorrelator"][()]
 
     def getTxPhase(self, frequency: str = 'A', tx: str = None):
@@ -472,7 +473,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if tx is None:
             tx = self.polarizations[frequency][0][0]
         path = self._pulseMetaPath(frequency=frequency, tx=tx)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             return f[path]["txPhase"][()]
 
     def getCaltone(self, frequency='A', polarization=None):
@@ -499,7 +500,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if polarization is None:
             polarization = self.polarizations[frequency][0]
         path_txrx = self._rawGroup(frequency, polarization)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as fid:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as fid:
             return fid[path_txrx]["caltone"][()]
 
     def getRD(self, frequency='A', polarization=None):
@@ -525,7 +526,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if polarization is None:
             polarization = self.polarizations[frequency][0]
         path_txrx = self._rawGroup(frequency, polarization)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as fid:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as fid:
             return fid[path_txrx]["RD"][()]
 
     def getWD(self, frequency='A', polarization=None):
@@ -551,7 +552,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if polarization is None:
             polarization = self.polarizations[frequency][0]
         path_txrx = self._rawGroup(frequency, polarization)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as fid:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as fid:
             return fid[path_txrx]["WD"][()]
 
     def getWL(self, frequency='A', polarization=None):
@@ -577,7 +578,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if polarization is None:
             polarization = self.polarizations[frequency][0]
         path_txrx = self._rawGroup(frequency, polarization)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as fid:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as fid:
             return fid[path_txrx]["WL"][()]
 
     def getSampleRateDBF(self, frequency="A", polarization=None):
@@ -602,7 +603,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if polarization is None:
             polarization = self.polarizations[frequency][0]
         path_txrx = self._rawGroup(frequency, polarization)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as fid:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as fid:
             group = fid[path_txrx]
             key = "sampleRateDBF"
             if key in group:
@@ -643,7 +644,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         if polarization is None:
             polarization = self.polarizations[frequency][0]
         path_txrx = self._rawGroup(frequency, polarization)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as fid:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as fid:
             return (fid[path_txrx]["RD"][()], fid[path_txrx]["WD"][()],
                     fid[path_txrx]["WL"][()])
 
@@ -701,7 +702,7 @@ class RawBase(Base, family='nisar.productreader.raw'):
         indicates the [start, end) valid samples.
         """
         txpath = self.TransmitPath(frequency, tx)
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as f:
+        with open_h5_file(self.filename, 'r', libver='latest', swmr=True) as f:
             ns = f[txpath]["numberOfSubSwaths"][()]
             ss1 = f[txpath]["validSamplesSubSwath1"][:]
             nt = ss1.shape[0]
@@ -874,7 +875,7 @@ def open_rrsd(filename) -> RawBase:
     # Peek at internal paths to try to determine flavor of L0B data.
     # A good check is the telemetry, which is split into high- and low-rate
     # groups in the 2020 updates.
-    with h5py.File(filename, 'r', libver='latest', swmr=True) as f:
+    with open_h5_file(filename, 'r', libver='latest', swmr=True) as f:
         if "/science/LSAR/RRSD/telemetry" in f:
             return LegacyRaw(hdf5file=filename)
         return Raw(hdf5file=filename)

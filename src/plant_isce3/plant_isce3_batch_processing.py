@@ -14,6 +14,8 @@ import boto3
 import glob
 import pickle
 
+from plant_isce3.readers.product import open_product
+
 res_deg_dict = {'A': 1.0 / 3600,
                 'B': 1.0 / 3600}
 
@@ -30,7 +32,10 @@ def get_parser():
                             description=descr,
                             input_file=2,
                             dem_file=1,
+                            geo=1,
+
                             default_output_options=1,
+                            output_skip_if_existent=1,
                             default_flags=1,
                             output_format=1,
                             multilook=1,
@@ -54,12 +59,30 @@ def get_parser():
                         help='List of strings that the input products should'
                         ' include (at least one)')
 
+    parser.add_argument('--filename-must-include-all',
+                        type=str,
+                        nargs='*',
+                        dest='filename_must_include_all',
+                        help='List of strings that the input products should'
+                        ' include (all)')
+
     parser.add_argument('--filename-must-not-include',
                         type=str,
                         nargs='*',
                         dest='filename_must_not_include',
                         help=('List of strings that the input products should'
                               ' not include'))
+
+    parser.add_argument('--must-be-quad-pol',
+                        action='store_true',
+                        dest='must_be_quad_pol',
+                        help='Require products to be quad-polarized')
+
+    parser.add_argument('--replace-l0b-with',
+                        '--replace-rrsd-with',
+                        type=str,
+                        dest='replace_l0b_with',
+                        help='Replace L0B with this string when searching for')
 
     parser.add_argument('--step-1-load-pickle-files',
                         action='store_true',
@@ -93,6 +116,34 @@ def get_parser():
                         action='store_true',
                         dest='step_1_download_kml',
                         help='Download browse KML files')
+
+    parser.add_argument('--step-2-gcov-runconfig',
+                        '--step-2-generate-gcov-runconfig',
+                        action='store_true',
+                        dest='step_2_generate_gcov_runconfig',
+                        help='Generate run configuration files')
+
+    parser.add_argument('--step-2-off-diagonal-analysis',
+                        action='store_true',
+                        dest='step_2_off_diagonal_analysis',
+                        help='Perform off-diagonal analysis')
+
+    parser.add_argument('--full-covariance',
+                        '--fullcovariance',
+                        dest='full_covariance',
+                        action='store_true',
+                        help='Include off-diagonal terms in the covariance'
+                        ' matrix.')
+
+    parser.add_argument('--plot-date',
+                        type=str,
+                        dest='plot_date',
+                        help='Date string to include in plot titles')
+
+    parser.add_argument('--plot-dataset-name',
+                        type=str,
+                        dest='plot_dataset_name',
+                        help='Dataset name to include in plot titles')
 
     parser.add_argument('--step-2-generate-cog',
                         action='store_true',
@@ -253,7 +304,22 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
     def run(self):
 
-        self.print(f'input file: {self.input_file}')
+        if self.replace_l0b_with:
+            self.print(f'input file (original): {self.input_file}')
+            self.print(f'replace L0B with: {self.replace_l0b_with}')
+            if self.replace_l0b_with == 'RSLC':
+                replace_string = 'L1_L_RSLC'
+            elif self.replace_l0b_with == 'GCOV':
+                replace_string = 'L2_L_GCOV'
+            elif self.replace_l0b_with == 'GSLC':
+                replace_string = 'L2_L_GSLC'
+            else:
+                raise ValueError(
+                    f'Unrecognized replace string: {self.replace_l0b_with}')
+            self.input_file = self.input_file.replace('L0B_L_RRSD',
+                                                      replace_string)
+        else:
+            self.print(f'input file: {self.input_file}')
 
         aws_credentials_file = f"{os.path.expanduser('~')}/.aws/credentials"
         gdal.SetConfigOption('AWS_CONFIG_FILE', aws_credentials_file)
@@ -274,6 +340,9 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             self.print(f's3 bucket: {bucket_name}')
             s3_prefix = '/'.join(input_file_splitted[3:])
             self.print(f's3 prefix: {s3_prefix}')
+        else:
+            bucket_name = None
+            s3_prefix = None
 
         kwargs_color_orig_dict = {
             'cmap': self.cmap,
@@ -564,7 +633,12 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             files_iterator = [os.path.split(f) for f in file_list]
 
         for i, objects in enumerate(files_iterator):
-            path, f = os.path.split(objects.key)
+            if isinstance(objects, tuple):
+                path, f = objects
+                if not path:
+                    path = '.'
+            else:
+                path, f = os.path.split(objects.key)
 
             if (not f.endswith('.h5') and not f.endswith('.png') and
                     not f.endswith('.kml')) or 'STATS' in f:
@@ -574,12 +648,21 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                     len(self.filename_must_include) > 0):
 
                 for s in self.filename_must_include:
-
+                    print(f'*** filename must include: {s}')
                     if s in path or s in f:
 
                         break
                 else:
 
+                    continue
+            if (self.filename_must_include_all is not None and
+                    len(self.filename_must_include_all) > 0):
+                flag_all_found = True
+                for s in self.filename_must_include_all:
+                    if s not in path and s not in f:
+                        flag_all_found = False
+                        break
+                if not flag_all_found:
                     continue
 
             if (self.filename_must_not_include is not None and
@@ -592,11 +675,14 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 if flag_found:
                     continue
 
-            if (self.max_number_products is not None and
+            if (self.max_number_products and
                     product_count > self.max_number_products):
                 continue
 
-            downloaded_file = os.path.join(self.step_1_directory, f)
+            if not flag_s3_bucket:
+                downloaded_file = self.input_file
+            else:
+                downloaded_file = os.path.join(self.step_1_directory, f)
 
             original_basename = os.path.splitext(f)[0]
             print('***    f:', f)
@@ -657,9 +743,10 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
             print(f'## {i} - Product {product_count}: {basename}')
 
-            s3_product_path = os.path.join('s3://', bucket_name, path, f)
-            vsis3_product_path = s3_product_path.replace('s3://', '/vsis3/')
             if flag_s3_bucket:
+                s3_product_path = os.path.join('s3://', bucket_name, path, f)
+                vsis3_product_path = s3_product_path.replace(
+                    's3://', '/vsis3/')
 
                 kwargs = {
                     'secret_id': np.bytes_(creds["aws_access_key_id"]),
@@ -673,9 +760,11 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
                 h5_obj = h5py.File(s3_product_path, driver='ros3',
                                    **kwargs)
+                self.nisar_product_obj = open_product(s3_product_path)
 
             else:
-                h5_obj = h5py.File(os.join(path, f), swmr=True)
+                h5_obj = h5py.File(os.path.join(path, f), swmr=True)
+                self.nisar_product_obj = open_product(os.path.join(path, f))
 
             current_file_product_type = get_product_type(h5_obj)
             current_product_level = get_product_level(h5_obj)
@@ -730,26 +819,23 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
             list_of_frequencies = [freq.decode()
                                    for freq in list_of_frequencies_orig]
-            list_of_frequencies_dict = {}
 
-            for frequency in list_of_frequencies:
-
-                if current_product_level == 'L1':
-                    h5_path = (f'/science/LSAR/{current_file_product_type}/'
-                               f'swaths/frequency{frequency}/'
-                               'listOfPolarizations')
-                else:
-                    h5_path = (f'/science/LSAR/{current_file_product_type}/'
-                               f'grids/frequency{frequency}/'
-                               'listOfPolarizations')
-
-                if h5_path not in h5_obj:
+            list_of_frequencies_dict = self.nisar_product_obj.polarizations
+            print('list_of_frequencies_dict:', list_of_frequencies_dict)
+            if self.must_be_quad_pol:
+                if ('A' in list_of_frequencies_dict.keys() and
+                        set(list_of_frequencies_dict['A']) !=
+                        set(['HH', 'HV', 'VH', 'VV'])):
+                    print('    skipping non quad-pol frequency A:',
+                          list_of_frequencies_dict['A'])
                     continue
-
-                pol_list_orig = h5_obj[h5_path]
-
-                pol_list = [pol.decode() for pol in pol_list_orig]
-                list_of_frequencies_dict[frequency] = pol_list
+                if ('B' in list_of_frequencies_dict.keys() and
+                        set(list_of_frequencies_dict['B']) !=
+                        set(['HH', 'HV', 'VH', 'VV'])):
+                    print('    skipping non quad-pol frequency B:',
+                          list_of_frequencies_dict['B'])
+                    continue
+                print('    quad-pol check passed')
 
             if current_product_level == 'L2':
                 epsg = str(get_product_epsg(h5_obj, current_file_product_type))
@@ -765,9 +851,13 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             output_dir = self.step_2_directory
 
             os.makedirs(output_dir, exist_ok=True)
-
-            if (self.step_1_download_hdf5 and
-                    not os.path.isfile(downloaded_file)):
+            if os.path.isfile(downloaded_file) and flag_s3_bucket:
+                print('        HDF5 already downloaded:', f)
+                product_count += 1
+            elif os.path.isfile(downloaded_file):
+                print('        HDF5 input file:', f)
+                product_count += 1
+            elif self.step_1_download_hdf5:
 
                 os.makedirs(os.path.dirname(downloaded_file),
                             exist_ok=True)
@@ -779,19 +869,48 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 except BaseException:
                     print('        there was an error downloading file:', f)
                     continue
-            elif os.path.isfile(downloaded_file):
-                print('        HDF5 already downloaded:', f)
-                product_count += 1
+
             else:
                 print('        HDF5 not found/downloaded:', f)
                 downloaded_file = None
+
+            output_runconfig = os.path.join(output_dir,
+                                            basename + '_gcov.yaml')
+
+            if self.step_2_generate_gcov_runconfig:
+
+                output_l2_basename = f'{basename}.h5'
+                output_l2_basename = output_l2_basename.replace('L1', 'L2')
+                output_l2_basename = output_l2_basename.replace('RSLC', 'GCOV')
+                output_l2 = os.path.join(output_dir, basename +
+                                         output_l2_basename)
+                geo_kwargs = {}
+                if self.plant_geogrid_obj is not None:
+                    self.plant_geogrid_obj.print()
+                    if plant.isvalid(self.plant_geogrid_obj.step_x):
+                        geo_kwargs['step_x'] = self.plant_geogrid_obj.step_x
+                    if plant.isvalid(self.plant_geogrid_obj.step_y):
+                        geo_kwargs['step_y'] = self.plant_geogrid_obj.step_y
+                    print('geo_kwargs:', geo_kwargs)
+
+                plant_isce3.runconfig(
+                    downloaded_file,
+
+                    dem=self.dem_file,
+
+                    output_file=output_runconfig,
+                    sas_output_file=output_l2,
+                    full_covariance=self.full_covariance,
+                    debug=self.flag_debug,
+                    force=True,
+                    **geo_kwargs)
 
             for frequency, pols in list_of_frequencies_dict.items():
 
                 if frequency not in frequency_epsg_dict.keys():
                     continue
 
-                if downloaded_file is None:
+                if downloaded_file is None and flag_s3_bucket:
                     downloaded_file = vsis3_product_path
                     print('        using remote reference (vsis3):',
                           downloaded_file)
@@ -818,6 +937,21 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
         output_file = os.path.join(output_dir, basename + suffix + '.tif')
         output_kmz = os.path.join(output_dir, basename + suffix + '.kmz')
         output_png = os.path.join(output_dir, basename + suffix + '.png')
+
+        if self.step_2_off_diagonal_analysis:
+            kwargs_off_diag_analysis = {}
+            if self.plot_dataset_name:
+                kwargs_off_diag_analysis['plot_dataset_name'] = \
+                    self.plot_dataset_name
+            if self.plot_date:
+                kwargs_off_diag_analysis['plot_date'] = self.plot_date
+
+            plant_isce3.off_diagonal_analysis(
+                downloaded_file, output_dir=basename, frequency=frequency,
+                output_skip_if_existent=self.output_skip_if_existent,
+                force=True,
+                nlooks_x=nlooks_x, nlooks_y=nlooks_y,
+                **kwargs_off_diag_analysis)
 
         if (self.step_2_generate_cog_rgb and not os.path.isfile(output_file)):
             input_ref = f'NISAR:{downloaded_file}:{frequency}'
