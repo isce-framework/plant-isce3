@@ -35,15 +35,15 @@ IDENTIFICATION_DICT = {
 
 FREQ_SWATH_DICT = {
     'slantRangeSpacing':
-        ['slant range spacing [m]', 1, float],
+        ['slant-range spacing [m]', 1, float],
     'sceneCenterAlongTrackSpacing':
-        ['scene center ground spacing [m]', 1, float],
+        ['scene-center along-track spacing [m]', 1, float],
     'sceneCenterGroundRangeSpacing':
-        ['scene center ground range spacing [m]', 1, float],
+        ['scene-center ground-range spacing [m]', 1, float],
     'processedRangeBandwidth':
         ['processed range bandwidth [MHz]', 1e-6, float],
     'acquiredRangeBandwidth':
-        ['acquired range bandw,idth [Hz]', 1e-6, float],
+        ['acquired range bandwidth [Hz]', 1e-6, float],
     'processedAzimuthBandwidth':
         ['processed azimuth bandwidth [Hz]', 1, float],
 }
@@ -126,12 +126,13 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
         for key, value in burst_id_dict.items():
             print(f'## burst(s) in subswath {key}:', value)
 
-    def verify_geolocation_lut(self, product_type,
-                               h5_obj, lut_group_path, lut_name,
-                               y_coordinates_str, x_coordinates_str,
-                               y0, yf, dy, x0, xf, dx,
-                               coordinate_y_descr,
-                               coordinate_x_descr):
+    def verify_lut_horizontal_extents(
+            self, product_type,
+            h5_obj, lut_group_path, lut_name,
+            y_coordinates_str, x_coordinates_str,
+            y0, yf, dy, x0, xf, dx,
+            coordinate_y_descr,
+            coordinate_x_descr):
 
         if (f'{lut_group_path}/{y_coordinates_str}' not in
                 h5_obj[lut_group_path]):
@@ -148,19 +149,21 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
 
         lut_y0 = y_coordinates[0]
         lut_yf = y_coordinates[-1]
+        lut_dy = y_coordinates[1] - y_coordinates[0]
 
         lut_x0 = x_coordinates[0]
         lut_xf = x_coordinates[-1]
+        lut_dx = x_coordinates[1] - x_coordinates[0]
 
-        lut_y0_index = (lut_y0 - y0) / dy
-        lut_yf_index = (lut_yf - yf) / dy
-        lut_x0_index = (lut_x0 - x0) / dx
-        lut_xf_index = (lut_xf - xf) / dx
+        lut_y0_index = (lut_y0 - y0) / lut_dy
+        lut_yf_index = (lut_yf - yf) / lut_dy
+        lut_x0_index = (lut_x0 - x0) / lut_dx
+        lut_xf_index = (lut_xf - xf) / lut_dx
 
-        lut_y0_status = '[ OK ]' if dy / \
-            abs(dy) * lut_y0_index < 0 else '[FAIL]'
-        lut_yf_status = '[ OK ]' if dy / \
-            abs(dy) * lut_yf_index > 0 else '[FAIL]'
+        lut_y0_status = '[ OK ]' if lut_dy / \
+            abs(lut_dy) * lut_y0_index < 0 else '[FAIL]'
+        lut_yf_status = '[ OK ]' if lut_dy / \
+            abs(lut_dy) * lut_yf_index > 0 else '[FAIL]'
 
         lut_x0_status = '[ OK ]' if lut_x0_index < 0 else '[FAIL]'
         lut_xf_status = '[ OK ]' if lut_xf_index > 0 else '[FAIL]'
@@ -172,21 +175,21 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
             if (product_type != 'RSLC' or
                     'noiseEquivalentBackscatter' not in lut_group_path):
                 print(f'{lut_y0_status} start {coordinate_y_descr}'
-                      f' (lut_y0 - y0) / dy = lut_y0_index => '
-                      f' ({lut_y0} - {y0}) / {dy} ='
+                      f' (lut_y0 - y0) / lut_dy = lut_y0_index => '
+                      f' ({lut_y0} - {y0}) / {lut_dy} ='
                       f' {lut_y0_index}')
                 print(f'{lut_yf_status} end {coordinate_y_descr}'
-                      f' (lut_yf - yf) / dy = lut_yf_index => '
-                      f' ({lut_yf} - {yf}) / {dy} ='
+                      f' (lut_yf - yf) / lut_dy = lut_yf_index => '
+                      f' ({lut_yf} - {yf}) / {lut_dy} ='
                       f' {lut_yf_index}')
 
             print(f'{lut_x0_status} start {coordinate_x_descr}'
-                  f' (lut_x0 - x0) / dy = lut_x0_index => '
-                  f' ({lut_x0} - {x0}) / {dx} ='
+                  f' (lut_x0 - x0) / lut_dx = lut_x0_index => '
+                  f' ({lut_x0} - {x0}) / {lut_dx} ='
                   f' {lut_x0_index}')
             print(f'{lut_xf_status} end {coordinate_x_descr}'
-                  f' (lut_xf - xf) / dy = lut_xf_index => '
-                  f' ({lut_xf} - {xf}) / {dx} ='
+                  f' (lut_xf - xf) / lut_dx = lut_xf_index => '
+                  f' ({lut_xf} - {xf}) / {lut_dx} ='
                   f' {lut_xf_index}')
 
     def _print_nisar_product_info(self):
@@ -236,6 +239,8 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
             pri_path = (f'{swaths_base_path}/zeroDopplerTimeSpacing')
             pri = h5_obj[pri_path][()]
 
+        flag_color = self.getattr2('flag_color_text') is not False
+
         print('## other parameters:')
         with plant.PlantIndent():
             if nisar_product_obj.productType != 'RRSD':
@@ -244,7 +249,8 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
 
             self.print_h5_parameters(h5_obj,
                                      nisar_product_obj.IdentificationPath,
-                                     IDENTIFICATION_DICT)
+                                     IDENTIFICATION_DICT,
+                                     flag_color)
 
             for frequency in freq_pol_dict.keys():
                 if nisar_product_obj.productType == 'RRSD':
@@ -275,17 +281,28 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                              f'{freq_pol_dict[frequency][0]}')
                     first_image_shape = h5_obj[first_image_path].shape
 
-                    print('## number of lines (azimuth lines):'
-                          f' {first_image_shape[0]}')
-                    print('## number of samples (range bins):'
-                          f' {first_image_shape[1]}')
+                    if flag_color:
+                        print(plant.bcolors.BCyan +
+                              'number of lines (azimuth lines):'
+                              f' {first_image_shape[0]}' +
+                              plant.bcolors.ColorOff)
+                        print(plant.bcolors.BCyan +
+                              'number of samples (range bins):'
+                              f' {first_image_shape[1]}' +
+                              plant.bcolors.ColorOff)
+                    else:
+                        print('## number of lines (azimuth lines):'
+                              f' {first_image_shape[0]}')
+                        print('## number of samples (range bins):'
+                              f' {first_image_shape[1]}')
 
                     if nisar_product_obj.productType == 'RSLC':
                         print('nominal acquisition PRF [Hz]:'
                               f' {nominal_acquisition_prf}')
 
                     self.print_h5_parameters(h5_obj, freq_swaths_path,
-                                             FREQ_SWATH_DICT)
+                                             FREQ_SWATH_DICT,
+                                             flag_color)
 
         if self.show_all and nisar_product_obj.productType == 'RSLC':
             print('## Image and look-up tables (LUTs) extents:')
@@ -361,7 +378,7 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
 
                         for lut_group_path, lut_name in lut_list:
 
-                            self.verify_geolocation_lut(
+                            self.verify_lut_horizontal_extents(
                                 nisar_product_obj.productType,
                                 h5_obj, lut_group_path, lut_name,
                                 y_coordinates_str, x_coordinates_str,
@@ -445,7 +462,8 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                     print('max X:', x_max)
                     print(coord_str)
 
-    def print_h5_parameters(self, h5_obj, h5path, dict_datasets_text):
+    def print_h5_parameters(self, h5_obj, h5path, dict_datasets_text,
+                            flag_color):
         for dataset, (text, factor, dtype) in dict_datasets_text.items():
             h5_path = f'{h5path}/{dataset}'
             if h5_path not in h5_obj:
@@ -457,7 +475,19 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                     value = value.decode()
             else:
                 value = dtype(factor * h5_dataset[()])
-            if text.startswith('processed range bandwidth'):
+
+            if (flag_color and
+                    (text.startswith('slant-range spacing [m]') or
+                     text.startswith('scene-center along-track spacing [m]'))):
+                print(plant.bcolors.BGreen + f'{text}: {value}' +
+                      plant.bcolors.ColorOff)
+            elif (flag_color and
+                    text.startswith('processed range bandwidth')):
+                print(plant.bcolors.BPurple + f'{text}: {value}' +
+                      plant.bcolors.ColorOff)
+            elif (text.startswith('slant-range spacing [m]') or
+                    text.startswith('scene-center along-track spacing [m]') or
+                    text.startswith('processed range bandwidth')):
                 print(f'## {text}: {value}')
             else:
                 print(f'{text}: {value}')

@@ -1,7 +1,7 @@
 pytest
 gdal >=3.8
 isce3 >=0.24.5
-plant >=0.6.2
+plant >=0.7.0
 numpy >=2.0.0
 ruamel_yaml >=0.15
 libnetcdf

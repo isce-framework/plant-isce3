@@ -119,7 +119,22 @@ class PlantIsce3Polygon(plant_isce3.PlantIsce3Script):
             self.print('Operation cancelled.', 1)
             return
 
-        input_raster = self.get_input_raster_from_nisar_product()
+        plant_product_obj = self.load_product()
+
+        orbit = plant_product_obj.get_orbit()
+        doppler = plant_product_obj.get_grid_doppler()
+
+        self.tec_file = plant_product_obj.get_tec_file()
+
+        if (plant_product_obj.sensor_name == 'Sentinel-1'):
+
+            input_raster = plant_product_obj.get_sentinel_1_input_raster(
+                self.input_raster,
+                flag_transform_input_raster=self.flag_transform_input_raster)
+
+        else:
+            input_raster = self.get_input_raster_from_nisar_product(
+                plant_product_obj=plant_product_obj)
 
         input_raster_obj = plant_isce3.get_isce3_raster(input_raster)
 

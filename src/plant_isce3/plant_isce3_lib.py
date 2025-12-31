@@ -911,7 +911,7 @@ class PlantIsce3Sensor():
             if orbit_file is not None:
                 radar_grid = self.get_radar_grid()
                 orbit = load_orbit_from_xml(orbit_file,
-                                            radar_grid.ref_epoch())
+                                            radar_grid.ref_epoch)
                 return orbit
 
             return self.nisar_product_obj.getOrbit()
@@ -1055,7 +1055,7 @@ class PlantIsce3Sensor():
 
         for orbit_file in all_orbit_files:
 
-            orbit = load_orbit_from_xml(orbit_file, radar_grid.ref_epoch())
+            orbit = load_orbit_from_xml(orbit_file, radar_grid.ref_epoch)
 
             orbit_start = datetime.datetime.fromisoformat(
                 orbit.start_datetime.isoformat_usec())
@@ -1641,7 +1641,8 @@ class PlantIsce3Script(plant.PlantScript):
 
     def _get_input_raster_from_nisar_product(self, input_raster=None,
                                              input_file=None,
-                                             plant_product_obj=None):
+                                             plant_product_obj=None,
+                                             frequency_str=None):
 
         if (input_raster is None and
                 getattr(self, 'input_raster', None) is not None):
@@ -1657,6 +1658,14 @@ class PlantIsce3Script(plant.PlantScript):
         symmetrize_bands = \
             getattr(self, 'symmetrize_bands', None)
 
+        if frequency_str is None and plant_product_obj is None:
+            print('ERROR frequency_str and plant_product_obj cannot both be'
+                  ' None in the call to get_input_raster_from_nisar_product()')
+            return
+
+        if frequency_str is None:
+            frequency_str = plant_product_obj.get_frequency_str()
+
         if input_raster is not None:
 
             if flag_transform_input_raster is not False:
@@ -1669,12 +1678,15 @@ class PlantIsce3Script(plant.PlantScript):
                 flag_apply_transformation = False
                 image_obj = plant.read_image(input_raster)
 
+            self.print('*** flag_apply_transformation:'
+                       f' {flag_apply_transformation}')
+            self.print(f'*** transformation: {self.plant_transform_obj}')
             if flag_apply_transformation:
+
                 temp_file = plant.get_temporary_file(append=True,
-                                                     ext='vrt')
-                self.print(f'*** creating temporary file: {temp_file}')
-                self.save_image(image_obj, temp_file, force=True,
-                                output_format='VRT')
+                                                     ext='tif')
+                self.print(f'*** creating temporary file (1): {temp_file}')
+                self.save_image(image_obj, temp_file, force=True)
                 input_raster = temp_file
 
             if flag_symmetrize and symmetrize_bands is None:
@@ -1682,6 +1694,8 @@ class PlantIsce3Script(plant.PlantScript):
                            ' requires the parameter --symmetrize-bands')
                 return
             elif flag_symmetrize:
+                self.print('applying polarimetric symmetrization to input'
+                           ' raster')
                 hv_band = symmetrize_bands[0]
                 vh_band = symmetrize_bands[1]
 
@@ -1711,7 +1725,6 @@ class PlantIsce3Script(plant.PlantScript):
                 input_raster = temp_file
 
         else:
-            frequency_str = plant_product_obj.get_frequency_str()
             self.print(f'selecting product frequency: {frequency_str}')
             nisar_product_obj = open_product(input_file)
             if nisar_product_obj.getProductLevel() == "L1":
@@ -1733,7 +1746,7 @@ class PlantIsce3Script(plant.PlantScript):
             raster_file = f'NISAR:{input_file}:{frequency_str}'
             temp_file = plant.get_temporary_file(append=True,
                                                  ext='vrt')
-            self.print(f'*** creating temporary file: {temp_file}')
+            self.print(f'*** creating temporary file (2): {temp_file}')
             image_obj = self.read_image(raster_file)
 
             self._get_symmetrized_input_raster(
@@ -1745,11 +1758,14 @@ class PlantIsce3Script(plant.PlantScript):
 
         if nlooks_y > 1 or nlooks_x > 1:
 
+            image_obj = self.read_image(input_raster)
+
             self.print('multilooking input file')
             dtype_str = plant.get_dtype_name(image_obj.dtype)
+
             filter_kwargs = {}
 
-            self.print('data type:', dtype_str)
+            self.print(f'data type: {dtype_str}')
             if ('COMPLEX' in dtype_str.upper() or
                     'CFLOAT' in dtype_str.upper()):
                 exponent = 2
@@ -1758,7 +1774,7 @@ class PlantIsce3Script(plant.PlantScript):
             else:
                 exponent = 1
 
-            self.print('exponent:', exponent)
+            self.print(f'exponent: {exponent}')
             self.print(f'number of looks: {nlooks_y} (az) x'
                        f' {nlooks_x} (rg)')
             self.print(f'original: {image_obj.length} (length) x'
@@ -2231,6 +2247,7 @@ def execute(command,
         sink = plant.PlantIndent()
 
     with sink:
+
         if verbose:
             arguments = plant.get_command_line_from_argv(argv)
             command_line = (f'{module_name}.py {arguments}')
@@ -2331,7 +2348,7 @@ class ModuleWrapper(object):
             return
 
         flag_mute = kwargs.get('flag_mute', None)
-        verbose = kwargs.get('verbose', None) and not (flag_mute is True)
+        verbose = kwargs.get('verbose', True) and not (flag_mute is True)
         if self._ref is not None:
 
             ret = self._ref.execute(self._command, verbose=verbose)

@@ -53,14 +53,20 @@ def get_parser():
                         dest='flag_gslc',
                         help='Generated geocoded SLC runconfig')
 
-    parser.add_argument(
-        '--rtc-min-value-db',
-        dest='rtc_min_value_db',
-        default=-30,
-        type=float,
-        help=(
-            'Minimum RTC area normalization factor (AFN) in'
-            ' dB. "nan" to disable it (default: %(default)s)'))
+    parser.add_argument('--rtc-min-value-db',
+                        dest='rtc_min_value_db',
+                        default=-30,
+                        type=float,
+                        help=('Minimum RTC area normalization factor (AFN) in'
+                              ' dB. "nan" to disable it'
+                              ' (default: %(default)s)'))
+
+    parser.add_argument('--full-covariance',
+                        '--fullcovariance',
+                        dest='full_covariance',
+                        action='store_true',
+                        help='Include off-diagonal terms in the covariance'
+                        ' matrix.')
 
     parser.add_argument('--mantissa-nbits',
                         '--mantissa-n-bits',
@@ -127,7 +133,11 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
 
         self._get_epsg_from_h5_file(self.input_file)
 
-        dem_raster = plant_isce3.get_isce3_raster(self.dem_file)
+        try:
+            dem_raster = plant_isce3.get_isce3_raster(self.dem_file)
+        except Exception as e:
+            err_str = f'Unable to open DEM file: {self.dem_file}'
+            raise RuntimeError(err_str) from e
 
         self.update_geogrid(radar_grid, dem_raster, geo=geo)
 
@@ -146,6 +156,15 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
         freq_b_dx = None
         freq_b_dy = None
 
+        if self.workflow_name == 'GSLC':
+            freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy = \
+                self.get_pixel_spacing_gslc(
+                    freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy, slc_obj)
+        else:
+            freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy = \
+                self.get_pixel_spacing_gcov(
+                    freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy, slc_obj)
+
         if plant.isvalid(self.step_x) and 'A' in slc_obj.frequencies:
             freq_a_dx = self.step_x
         if plant.isvalid(self.step_x) and 'B' in slc_obj.frequencies:
@@ -155,15 +174,6 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
             freq_a_dy = self.step_y
         if plant.isvalid(self.step_y) and 'B' in slc_obj.frequencies:
             freq_b_dy = self.step_y
-
-        if self.workflow_name == 'GSLC':
-            freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy = \
-                self.get_pixel_spacing_gslc(
-                    freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy, slc_obj)
-        else:
-            freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy = \
-                self.get_pixel_spacing_gcov(
-                    freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy, slc_obj)
 
         if self.snap_x:
             x0 = snap_coord(x0, self.snap_x, 0, np.floor)
@@ -443,12 +453,17 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
 
         print('        processing:', **kwargs)
 
-        if (workflow_name_upper == 'GCOV' and
-                self.rtc_min_value_db is not None and
-                plant.isvalid(self.rtc_min_value_db)):
-            print('            rtc:', **kwargs)
-            print(f'                rtc_min_value_db: {self.rtc_min_value_db}',
-                  **kwargs)
+        if workflow_name_upper == 'GCOV':
+            if (self.rtc_min_value_db is not None and
+                    plant.isvalid(self.rtc_min_value_db)):
+                print('            rtc:', **kwargs)
+                print('                rtc_min_value_db:'
+                      f' {self.rtc_min_value_db}',
+                      **kwargs)
+
+            if self.full_covariance:
+                print('            input_subset:', **kwargs)
+                print('                fullcovariance: true', **kwargs)
 
         print('            geocode:', **kwargs)
 

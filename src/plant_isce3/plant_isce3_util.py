@@ -50,6 +50,11 @@ def get_parser():
 
     group = parser.add_mutually_exclusive_group(required=True)
 
+    group.add_argument('--add-range-delay-in-meters',
+                       dest='add_range_delay_m',
+                       type=float,
+                       help=('Add range delay in meters'))
+
     group.add_argument('--cp-pol',
                        '--copy-pol',
                        dest='copy_pol',
@@ -227,6 +232,12 @@ def get_parser():
                         help=('Number of looks in the X direction'
                               ' for frequency B (when available)'),
                         dest='nlooks_y_b')
+
+    parser.add_argument('--square', '--sq',
+                        action='store_true',
+                        dest='transform_square',
+                        help='Square of input')
+
     return parser
 
 
@@ -397,6 +408,36 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                 shutil.copyfile(self.input_file, self.output_file)
 
             product_type = nisar_product_obj.productType
+
+            if (self.add_range_delay_m and
+                    nisar_product_obj.productType != 'RSLC'):
+                self.print('ERROR the option to add range delay is only '
+                           ' for NISAR RSLC products')
+                return
+            elif self.add_range_delay_m:
+                swaths_base_path = nisar_product_obj.SwathPath
+
+                with h5py.File(self.output_file, 'a') as root_ds:
+                    for frequency in freq_pol_dict.keys():
+                        image_group_path = (f'{swaths_base_path}/'
+                                            f'frequency{frequency}')
+                        slant_range_path = f'{image_group_path}/slantRange'
+                        slant_range_vector = root_ds[slant_range_path][()]
+
+                        del root_ds[slant_range_path]
+
+                        print('frequency:', frequency)
+                        print('slant_range_vector:', slant_range_vector)
+                        print('self.add_range_delay_m:',
+                              self.add_range_delay_m)
+
+                        slant_range_vector += self.add_range_delay_m
+                        print('slant_range_vector (updated):',
+                              slant_range_vector)
+
+                        root_ds.create_dataset(slant_range_path,
+                                               data=slant_range_vector)
+                    return
 
             if self.copy_pol:
                 with h5py.File(self.output_file, 'a') as root_ds:
@@ -739,6 +780,16 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
     def save_data(self, plant_product_obj, nisar_product_obj,
                   masked=False):
 
+        if (not self.transform_square and
+                nisar_product_obj.productType == 'GSLC' and
+                (self.nlooks_az is not None and self.nlooks_az != 1) or
+                (self.nlooks_rg is not None and self.nlooks_rg != 1)):
+            self.print('WARNING multilooking is enabled and'
+                       ' GSLC samples are complex.'
+                       ' Converting samples to power/intensity'
+                       ' before multilooking.')
+            self.transform_square = True
+
         input_raster = self.get_input_raster_from_nisar_product(
             input_raster=None,
             plant_product_obj=plant_product_obj)
@@ -760,8 +811,10 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
             valid = ((mask_array_obj.image > 0) & (mask_array_obj.image < 10))
 
-            plant.util(input_raster, output_file=self.output_file,
-                       input_mask=valid, force=True)
+            image_obj = plant.util(input_raster, input_mask=valid)
+
+            self.save_image(image_obj, output_file=self.output_file,
+                            force=True)
 
         else:
             self.save_image(input_raster, output_file=self.output_file,
