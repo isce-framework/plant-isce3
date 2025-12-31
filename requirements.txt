@@ -11,4 +11,3 @@ libgdal-hdf5
 libgdal-netcdf
 libnetcdf
 boto3
-geopandas
