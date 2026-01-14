@@ -1655,6 +1655,7 @@ class PlantIsce3Script(plant.PlantScript):
             getattr(self, 'flag_transform_input_raster', None)
         flag_symmetrize = \
             getattr(self, 'flag_symmetrize', None)
+
         symmetrize_bands = \
             getattr(self, 'symmetrize_bands', None)
 
@@ -1715,7 +1716,7 @@ class PlantIsce3Script(plant.PlantScript):
                     temp_hv_file, temp_vh_file)
 
                 temp_file = plant.get_temporary_file(
-                    append=True, suffix='_input_raster_symmerized', ext='tif')
+                    append=True, suffix='_input_raster_symmetrized', ext='tif')
                 image_obj = self.read_image(input_raster)
 
                 self._get_symmetrized_input_raster(
@@ -1726,7 +1727,9 @@ class PlantIsce3Script(plant.PlantScript):
 
         else:
             self.print(f'selecting product frequency: {frequency_str}')
+
             nisar_product_obj = open_product(input_file)
+
             if nisar_product_obj.getProductLevel() == "L1":
                 imagery_path = (f'{nisar_product_obj.SwathPath}/'
                                 f'frequency{frequency_str}')

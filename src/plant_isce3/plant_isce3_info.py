@@ -244,8 +244,12 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
         print('## other parameters:')
         with plant.PlantIndent():
             if nisar_product_obj.productType != 'RRSD':
-                print(f'pulse repetition interval (PRI) [us]: {pri * 1e6}')
-                print(f'pulse repetition frequency (PRF) [Hz]: {1. / pri}')
+                print(plant.bcolors.Yellow +
+                      f'pulse repetition interval (PRI) [ms]: {pri * 1e3}' +
+                      plant.bcolors.ColorOff)
+                print(plant.bcolors.Yellow +
+                      f'pulse repetition frequency (PRF) [Hz]: {1. / pri}' +
+                      plant.bcolors.ColorOff)
 
             self.print_h5_parameters(h5_obj,
                                      nisar_product_obj.IdentificationPath,
@@ -282,11 +286,11 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                     first_image_shape = h5_obj[first_image_path].shape
 
                     if flag_color:
-                        print(plant.bcolors.BCyan +
+                        print(plant.bcolors.Cyan +
                               'number of lines (azimuth lines):'
                               f' {first_image_shape[0]}' +
                               plant.bcolors.ColorOff)
-                        print(plant.bcolors.BCyan +
+                        print(plant.bcolors.Cyan +
                               'number of samples (range bins):'
                               f' {first_image_shape[1]}' +
                               plant.bcolors.ColorOff)
@@ -479,11 +483,12 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
             if (flag_color and
                     (text.startswith('slant-range spacing [m]') or
                      text.startswith('scene-center along-track spacing [m]'))):
-                print(plant.bcolors.BGreen + f'{text}: {value}' +
+                print(plant.bcolors.Green + f'{text}: {value}' +
                       plant.bcolors.ColorOff)
             elif (flag_color and
-                    text.startswith('processed range bandwidth')):
-                print(plant.bcolors.BPurple + f'{text}: {value}' +
+                    text.startswith('processed range bandwidth') or
+                    text.startswith('processed azimuth bandwidth')):
+                print(plant.bcolors.Purple + f'{text}: {value}' +
                       plant.bcolors.ColorOff)
             elif (text.startswith('slant-range spacing [m]') or
                     text.startswith('scene-center along-track spacing [m]') or
