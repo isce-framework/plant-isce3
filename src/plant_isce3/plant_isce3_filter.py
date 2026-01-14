@@ -212,7 +212,6 @@ class PlantIsce3Filter(plant_isce3.PlantIsce3Script):
         return self.run_filter()
 
     def run_filter(self):
-        self.print(f'input file: {str(self.input_file)}')
 
         ret = self.overwrite_file_check(self.output_file)
         if not ret:

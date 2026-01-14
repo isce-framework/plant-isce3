@@ -36,6 +36,7 @@ def get_parser():
                             dem_file=1,
                             cmap=1,
                             band=1,
+                            mask=1,
                             default_output_options=1,
                             default_flags=1,
                             output_format=1,
@@ -48,7 +49,7 @@ def get_parser():
                               orbit_files=1,
                               frequency=1)
 
-    group = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_mutually_exclusive_group()
 
     group.add_argument('--add-range-delay-in-meters',
                        dest='add_range_delay_m',
@@ -372,6 +373,9 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         if self.frequency is None:
             freq_pol_dict = nisar_product_obj.polarizations
             self.frequency = list(freq_pol_dict.keys())[0]
+        else:
+            freq_pol_dict = {self.frequency:
+                             nisar_product_obj.polarizations[self.frequency]}
 
         if self.mask_file:
             self.save_mask(nisar_product_obj)
@@ -409,13 +413,30 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
             product_type = nisar_product_obj.productType
 
+            flag_apply_transformation = \
+                self.plant_transform_obj.flag_apply_transformation()
+
+            swaths_base_path = nisar_product_obj.SwathPath
+
+            if (flag_apply_transformation and
+                    nisar_product_obj.productType != 'RSLC'):
+                self.print('ERROR the option to add range delay is only'
+                           ' available for NISAR RSLC products')
+                return
+
+            if flag_apply_transformation:
+
+                self.apply_transformations_rslc(freq_pol_dict,
+                                                swaths_base_path,
+                                                nisar_product_obj)
+
             if (self.add_range_delay_m and
                     nisar_product_obj.productType != 'RSLC'):
-                self.print('ERROR the option to add range delay is only '
-                           ' for NISAR RSLC products')
+                self.print('ERROR the option to add range delay is only'
+                           ' available for NISAR RSLC products')
                 return
+
             elif self.add_range_delay_m:
-                swaths_base_path = nisar_product_obj.SwathPath
 
                 with h5py.File(self.output_file, 'a') as root_ds:
                     for frequency in freq_pol_dict.keys():
@@ -437,7 +458,6 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
                         root_ds.create_dataset(slant_range_path,
                                                data=slant_range_vector)
-                    return
 
             if self.copy_pol:
                 with h5py.File(self.output_file, 'a') as root_ds:
@@ -535,7 +555,162 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                                                 exclude_string=exclude_string,
                                                 product_type=product_type)
 
-            print(f'# file saved: {self.output_file}')
+            print(f'## file saved: {self.output_file}')
+
+    def apply_transformations_rslc(self, freq_pol_dict, swaths_base_path,
+                                   nisar_product_obj):
+
+        self.print('## applying transformations to the RSLC product')
+        with h5py.File(self.output_file, 'a') as root_ds:
+            zero_doppler_path = f'{swaths_base_path}/zeroDopplerTime'
+            zero_doppler_vector = root_ds[zero_doppler_path][()]
+            length = len(zero_doppler_vector)
+
+            with plant.PlantIndent():
+                for frequency in freq_pol_dict.keys():
+                    print('frequency:', frequency)
+
+                    image_group_path = \
+                        f'{swaths_base_path}/frequency{frequency}'
+                    slant_range_path = f'{image_group_path}/slantRange'
+                    slant_range_vector = root_ds[slant_range_path][()]
+                    width = len(slant_range_vector)
+
+                    y0 = self.plant_transform_obj._offset_y
+                    if y0 is None:
+                        y0 = 0
+                    x0 = self.plant_transform_obj._offset_x
+                    if x0 is None:
+                        x0 = 0
+
+                    new_length = self.plant_transform_obj.length
+                    if new_length is None:
+                        new_length = length
+                    new_width = self.plant_transform_obj.width
+                    if new_width is None:
+                        new_width = width
+
+                    xf = min(x0 + new_width, width)
+                    yf = min(y0 + new_length, length)
+
+                    self.print(f'*** y0: {y0}')
+                    self.print(f'*** x0: {x0}')
+                    self.print(f'*** new_length: {new_length}')
+                    self.print(f'*** new_width: {new_width}')
+
+                    flag_crop_y = (y0 != 0 or yf != length)
+                    flag_crop_x = (x0 != 0 or xf != width)
+
+                    if not flag_crop_y and not flag_crop_x:
+                        self.print('*** no cropping needed')
+                        continue
+
+                    if flag_crop_y:
+                        new_zero_doppler_vector = \
+                            zero_doppler_vector[y0: yf]
+
+                        self.update_h5_data(root_ds, zero_doppler_path,
+                                            new_zero_doppler_vector)
+
+                    if flag_crop_x:
+                        image_group_path = (f'{swaths_base_path}/'
+                                            f'frequency{frequency}')
+                        slant_range_path = f'{image_group_path}/slantRange'
+                        slant_range_vector = root_ds[slant_range_path][()]
+                        new_slant_range_vector = slant_range_vector[x0: xf]
+
+                        self.update_h5_data(root_ds, slant_range_path,
+                                            new_slant_range_vector)
+
+                    with plant.PlantIndent():
+                        for pol in freq_pol_dict[frequency]:
+                            with plant.PlantIndent():
+                                print('polarization:', pol)
+                                image_path = \
+                                    (f'{swaths_base_path}/'
+                                     f'frequency{frequency}/{pol}')
+
+                                pol_ref = (f'HDF5:"{self.output_file}":'
+                                           f'/{image_path}')
+
+                                new_image_data = \
+                                    self.read_image(
+                                        pol_ref, flag_no_messages=True).image
+
+                                self.update_h5_data(root_ds, image_path,
+                                                    new_image_data)
+
+                freq_pol_orig_dict = nisar_product_obj.polarizations
+                if (flag_crop_y and
+                    set(freq_pol_dict.keys()) !=
+                        set(nisar_product_obj.polarizations.keys())):
+                    processed_freqs_str = ', '.join(list(freq_pol_dict.keys()))
+                    remaining_frequencies = \
+                        set(nisar_product_obj.polarizations.keys()) - \
+                        set(freq_pol_dict.keys())
+                    remaining_frequencies_str = ', '.join(list(
+                        remaining_frequencies))
+                    self.print('WARNING images from frequency'
+                               f' {processed_freqs_str}'
+                               ' have been cropped in the azimuth direction.'
+                               ' However, according to the NISAR RSLC'
+                               ' specifications, the number of azimuth lines'
+                               ' must be common across all frequencies.'
+                               ' Therefore, images from remaining'
+                               f' frequencies ({remaining_frequencies_str})'
+                               ' will also cropped in the azimuth direction')
+                    for frequency in remaining_frequencies:
+                        print('frequency:', frequency)
+                        with plant.PlantIndent():
+                            for pol in freq_pol_orig_dict[frequency]:
+                                with plant.PlantIndent():
+                                    print('polarization:', pol)
+                                    image_path = \
+                                        (f'{swaths_base_path}/'
+                                         f'frequency{frequency}/{pol}')
+
+                                    print(f'opening: {self.output_file} (HDF5:'
+                                          f' /{image_path})')
+                                    image_data = root_ds[image_path][()]
+                                    new_image_data = image_data[y0: yf, :]
+
+                                    self.update_h5_data(root_ds, image_path,
+                                                        new_image_data)
+
+                if flag_crop_y:
+                    print('updating valid-samples subswath arrays')
+                    for frequency in freq_pol_orig_dict.keys():
+                        for subswath_count in range(1, 6):
+                            valid_samples_path = (
+                                f'{swaths_base_path}/frequency{frequency}/'
+                                f'validSamplesSubSwath{subswath_count}')
+                            if valid_samples_path not in root_ds:
+                                continue
+                            valid_samples_array = \
+                                root_ds[valid_samples_path][()]
+                            new_valid_samples_array = \
+                                valid_samples_array[y0: yf, :]
+                            length, _ = new_valid_samples_array.shape
+                            for row in range(length):
+                                x_min = new_valid_samples_array[row, 0]
+                                x_max = new_valid_samples_array[row, 1]
+                                if x_min >= x_max:
+
+                                    continue
+
+                                new_valid_samples_array[row, :] = \
+                                    np.clip(new_valid_samples_array[row, :],
+                                            x0, xf)
+                            self.update_h5_data(root_ds, valid_samples_path,
+                                                new_valid_samples_array)
+
+    def update_h5_data(self, root_ds, image_path, new_image_data):
+        new_dataset = root_ds.create_dataset(
+            image_path + '_tpm', data=new_image_data)
+        new_dataset.attrs.update(
+            root_ds[image_path].attrs)
+        del root_ds[image_path]
+        root_ds.move(image_path + '_tpm', image_path)
 
     def save_all_layers(self, nisar_product_obj, plant_product_obj,
                         suffix=''):
