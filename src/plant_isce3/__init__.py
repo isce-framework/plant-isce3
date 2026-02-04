@@ -3,7 +3,7 @@ from plant_isce3.plant_isce3_lib import *
 import plant_isce3.plant_isce3_lib
 from . import readers
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 version = VERSION = __version__
 

@@ -63,6 +63,7 @@ def add_arguments(parser,
 
                   native_doppler_grid=0,
                   orbit_files=0,
+
                   tec_files=0):
 
     if abs_cal_factor:

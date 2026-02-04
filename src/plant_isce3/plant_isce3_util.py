@@ -272,6 +272,8 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
     def run(self):
 
+        self.frequency_orig = self.frequency
+
         ret = self.overwrite_file_check(self.output_file)
         if not ret:
             self.print('Operation cancelled.', 1)
@@ -404,7 +406,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         else:
             if self.input_file != self.output_file:
 
-                input_file_obj = h5py.File(self.input_file, 'r')
+                input_file_obj = plant.h5py_file_wrapper(self.input_file, 'r')
                 input_file_obj.close()
                 output_dir = os.path.dirname(self.output_file)
                 if output_dir:
@@ -420,11 +422,20 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
             if (flag_apply_transformation and
                     nisar_product_obj.productType != 'RSLC'):
-                self.print('ERROR the option to add range delay is only'
+                self.print('ERROR the option to apply transformations is only'
                            ' available for NISAR RSLC products')
                 return
 
-            if flag_apply_transformation:
+            elif flag_apply_transformation:
+
+                if (self.plant_transform_obj.flag_apply_crop() and
+                        self.frequency_orig is None):
+                    first_frequency = list(freq_pol_dict.keys())[0]
+                    self.print('WARNING the option to crop an RSLC'
+                               ' requires the frequency to be specified.'
+                               ' Using the first available frequency:'
+                               f' {first_frequency}')
+                    self.frequency = first_frequency
 
                 self.apply_transformations_rslc(freq_pol_dict,
                                                 swaths_base_path,
@@ -438,7 +449,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
             elif self.add_range_delay_m:
 
-                with h5py.File(self.output_file, 'a') as root_ds:
+                with plant.h5py_file_wrapper(self.output_file, 'a') as root_ds:
                     for frequency in freq_pol_dict.keys():
                         image_group_path = (f'{swaths_base_path}/'
                                             f'frequency{frequency}')
@@ -460,7 +471,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                                                data=slant_range_vector)
 
             if self.copy_pol:
-                with h5py.File(self.output_file, 'a') as root_ds:
+                with plant.h5py_file_wrapper(self.output_file, 'a') as root_ds:
                     self.copy_pol_recursive(root_ds, key='/',
                                             input_pol=self.copy_pol[0],
                                             output_pol=self.copy_pol[1],
@@ -468,14 +479,14 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                     print('done')
 
             if self.remove_pol:
-                with h5py.File(self.output_file, 'a') as root_ds:
+                with plant.h5py_file_wrapper(self.output_file, 'a') as root_ds:
                     self.remove_pol_recursive(root_ds, key='/',
                                               pol=self.remove_pol,
                                               product_type=product_type)
                     print('done')
 
             if self.move_pol:
-                with h5py.File(self.output_file, 'a') as root_ds:
+                with plant.h5py_file_wrapper(self.output_file, 'a') as root_ds:
                     self.copy_pol_recursive(root_ds, key='/',
                                             input_pol=self.move_pol[0],
                                             output_pol=self.move_pol[1],
@@ -487,7 +498,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
             if self.swap_quad_pol:
                 exclude_string = 'frequencyB'
-                with h5py.File(self.output_file, 'a') as root_ds:
+                with plant.h5py_file_wrapper(self.output_file, 'a') as root_ds:
                     if nisar_product_obj.productType == 'RRSD':
                         print('*** input product is RRSD!')
                         hh_path = self.get_rrsd_path('HH')
@@ -558,13 +569,30 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
             print(f'## file saved: {self.output_file}')
 
     def apply_transformations_rslc(self, freq_pol_dict, swaths_base_path,
-                                   nisar_product_obj):
+                                   nisar_product_obj,
+                                   flag_recursion_first_run=True,
+                                   min_range=None,
+                                   max_range=None):
 
-        self.print('## applying transformations to the RSLC product')
-        with h5py.File(self.output_file, 'a') as root_ds:
-            zero_doppler_path = f'{swaths_base_path}/zeroDopplerTime'
-            zero_doppler_vector = root_ds[zero_doppler_path][()]
-            length = len(zero_doppler_vector)
+        if flag_recursion_first_run:
+            self.print('## applying transformations to the RSLC product')
+
+        with plant.h5py_file_wrapper(self.output_file, 'a') as root_ds:
+            if flag_recursion_first_run:
+                zero_doppler_path = f'{swaths_base_path}/zeroDopplerTime'
+                zero_doppler_vector = root_ds[zero_doppler_path][()]
+                length = len(zero_doppler_vector)
+            else:
+
+                first_frequency = list(freq_pol_dict.keys())[0]
+                first_pol = freq_pol_dict[first_frequency][0]
+                image_path = (f'{swaths_base_path}/'
+                              f'frequency{first_frequency}/{first_pol}')
+
+                pol_ref = (f'HDF5:"{self.output_file}":'
+                           f'/{image_path}')
+                length = plant.read_image(
+                    pol_ref, flag_no_messages=True).image.shape[0]
 
             with plant.PlantIndent():
                 for frequency in freq_pol_dict.keys():
@@ -579,33 +607,54 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                     y0 = self.plant_transform_obj._offset_y
                     if y0 is None:
                         y0 = 0
-                    x0 = self.plant_transform_obj._offset_x
-                    if x0 is None:
-                        x0 = 0
+
+                    print(f'*** length: {length}')
 
                     new_length = self.plant_transform_obj.length
+                    print(f'*** new_length: {new_length}')
                     if new_length is None:
                         new_length = length
-                    new_width = self.plant_transform_obj.width
-                    if new_width is None:
-                        new_width = width
+                        print(f'*** new_length: {new_length}')
 
-                    xf = min(x0 + new_width, width)
                     yf = min(y0 + new_length, length)
+                    print(f'*** y0: {y0}, yf: {yf}')
 
-                    self.print(f'*** y0: {y0}')
-                    self.print(f'*** x0: {x0}')
-                    self.print(f'*** new_length: {new_length}')
-                    self.print(f'*** new_width: {new_width}')
+                    if min_range is not None:
+
+                        x0 = np.searchsorted(slant_range_vector, min_range,
+                                             side='left')
+
+                    else:
+                        x0 = self.plant_transform_obj._offset_x
+                        if x0 is None:
+                            x0 = 0
+
+                    if max_range is not None:
+
+                        xf = np.searchsorted(slant_range_vector, max_range,
+                                             side='right')
+
+                        new_width = xf - x0 + 1
+
+                    else:
+                        new_width = self.plant_transform_obj.width
+                        if new_width is None:
+                            new_width = width
+
+                        xf = min(x0 + new_width, width)
 
                     flag_crop_y = (y0 != 0 or yf != length)
                     flag_crop_x = (x0 != 0 or xf != width)
 
-                    if not flag_crop_y and not flag_crop_x:
-                        self.print('*** no cropping needed')
-                        continue
+                    if flag_crop_x or flag_crop_y:
+                        self.print('cropping parameters (indices):')
+                        with plant.PlantIndent():
+                            self.print(f'x0: {x0}, xf: {xf}')
+                            self.print(f'y0: {y0}, yf: {yf}')
+                        self.print(f'new length: {new_length}')
+                        self.print(f'new width: {new_width}')
 
-                    if flag_crop_y:
+                    if flag_crop_y and flag_recursion_first_run:
                         new_zero_doppler_vector = \
                             zero_doppler_vector[y0: yf]
 
@@ -618,30 +667,55 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                         slant_range_path = f'{image_group_path}/slantRange'
                         slant_range_vector = root_ds[slant_range_path][()]
                         new_slant_range_vector = slant_range_vector[x0: xf]
+                        min_range = new_slant_range_vector[0]
+                        max_range = new_slant_range_vector[-1]
 
                         self.update_h5_data(root_ds, slant_range_path,
                                             new_slant_range_vector)
 
-                    with plant.PlantIndent():
-                        for pol in freq_pol_dict[frequency]:
-                            with plant.PlantIndent():
-                                print('polarization:', pol)
-                                image_path = \
-                                    (f'{swaths_base_path}/'
-                                     f'frequency{frequency}/{pol}')
+                    for pol in freq_pol_dict[frequency]:
+                        with plant.PlantIndent():
+                            print('polarization:', pol)
+                            image_path = \
+                                (f'{swaths_base_path}/'
+                                    f'frequency{frequency}/{pol}')
 
-                                pol_ref = (f'HDF5:"{self.output_file}":'
-                                           f'/{image_path}')
+                            pol_ref = (f'HDF5:"{self.output_file}":'
+                                       f'/{image_path}')
 
-                                new_image_data = \
-                                    self.read_image(
-                                        pol_ref, flag_no_messages=True).image
+                            if (flag_crop_x and (min_range is not None or
+                                                 max_range is not None)):
+                                offset_x_orig = \
+                                    self.plant_transform_obj._offset_x
+                                width_orig = \
+                                    self.plant_transform_obj._width
+                                select_col_orig = \
+                                    self.plant_transform_obj._select_col
 
-                                self.update_h5_data(root_ds, image_path,
-                                                    new_image_data)
+                                self.plant_transform_obj._offset_x = x0
+                                self.plant_transform_obj._width = new_width
+                                self.plant_transform_obj._select_col = \
+                                    f'{x0}:{xf}'
+                            new_image_data = \
+                                self.read_image(
+                                    pol_ref, flag_no_messages=True).image
+
+                            if (flag_crop_x and (min_range is not None or
+                                                 max_range is not None)):
+                                self.plant_transform_obj._offset_x = \
+                                    offset_x_orig
+                                self.plant_transform_obj._width = \
+                                    width_orig
+                                self.plant_transform_obj._select_col = \
+                                    select_col_orig
+
+                            self.update_h5_data(root_ds, image_path,
+                                                new_image_data)
 
                 freq_pol_orig_dict = nisar_product_obj.polarizations
-                if (flag_crop_y and
+
+                freq_pol_str = ', '.join(list(freq_pol_dict.keys()))
+                if (flag_recursion_first_run and flag_crop_y and
                     set(freq_pol_dict.keys()) !=
                         set(nisar_product_obj.polarizations.keys())):
                     processed_freqs_str = ', '.join(list(freq_pol_dict.keys()))
@@ -650,36 +724,31 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                         set(freq_pol_dict.keys())
                     remaining_frequencies_str = ', '.join(list(
                         remaining_frequencies))
-                    self.print('WARNING images from frequency'
-                               f' {processed_freqs_str}'
-                               ' have been cropped in the azimuth direction.'
-                               ' However, according to the NISAR RSLC'
-                               ' specifications, the number of azimuth lines'
-                               ' must be common across all frequencies.'
-                               ' Therefore, images from remaining'
-                               f' frequencies ({remaining_frequencies_str})'
-                               ' will also cropped in the azimuth direction')
+
+                    self.print('Cropping frequency'
+                               f' {remaining_frequencies_str} images'
+                               ' with cropping indices derived from'
+                               f' the frequency {processed_freqs_str}')
                     for frequency in remaining_frequencies:
-                        print('frequency:', frequency)
-                        with plant.PlantIndent():
-                            for pol in freq_pol_orig_dict[frequency]:
-                                with plant.PlantIndent():
-                                    print('polarization:', pol)
-                                    image_path = \
-                                        (f'{swaths_base_path}/'
-                                         f'frequency{frequency}/{pol}')
 
-                                    print(f'opening: {self.output_file} (HDF5:'
-                                          f' /{image_path})')
-                                    image_data = root_ds[image_path][()]
-                                    new_image_data = image_data[y0: yf, :]
+                        remaining_freq_pol_list = freq_pol_orig_dict[
+                            frequency]
 
-                                    self.update_h5_data(root_ds, image_path,
-                                                        new_image_data)
+                        new_freq_pol_dict = {frequency:
+                                             remaining_freq_pol_list}
+
+                        self.apply_transformations_rslc(
+                            new_freq_pol_dict, swaths_base_path,
+                            nisar_product_obj,
+                            flag_recursion_first_run=False,
+                            min_range=min_range,
+                            max_range=max_range)
 
                 if flag_crop_y:
-                    print('updating valid-samples subswath arrays')
-                    for frequency in freq_pol_orig_dict.keys():
+                    print('updating valid-samples subswath arrays'
+                          ' in the azimuth direction'
+                          f' for frequency: {freq_pol_str}')
+                    for frequency in freq_pol_dict.keys():
                         for subswath_count in range(1, 6):
                             valid_samples_path = (
                                 f'{swaths_base_path}/frequency{frequency}/'
@@ -688,21 +757,54 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                                 continue
                             valid_samples_array = \
                                 root_ds[valid_samples_path][()]
+                            print('*** valid_samples_array.shape (before): '
+                                  f'{valid_samples_array.shape}')
                             new_valid_samples_array = \
                                 valid_samples_array[y0: yf, :]
-                            length, _ = new_valid_samples_array.shape
-                            for row in range(length):
-                                x_min = new_valid_samples_array[row, 0]
-                                x_max = new_valid_samples_array[row, 1]
-                                if x_min >= x_max:
-
-                                    continue
-
-                                new_valid_samples_array[row, :] = \
-                                    np.clip(new_valid_samples_array[row, :],
-                                            x0, xf)
+                            print('*** valid_samples_array.shape (after): '
+                                  f'{new_valid_samples_array.shape}')
                             self.update_h5_data(root_ds, valid_samples_path,
                                                 new_valid_samples_array)
+
+                if flag_crop_x:
+
+                    new_xf = xf - x0
+                    print('updating valid-samples subswath arrays'
+                          ' in the range direction clipping to new range'
+                          f' limit ({new_xf}) for frequency: {freq_pol_str}')
+                    for frequency in freq_pol_dict.keys():
+                        for subswath_count in range(1, 6):
+                            valid_samples_length, _ = \
+                                new_valid_samples_array.shape
+                            valid_samples_path = (
+                                f'{swaths_base_path}/frequency{frequency}/'
+                                f'validSamplesSubSwath{subswath_count}')
+
+                            if valid_samples_path not in root_ds:
+                                continue
+
+                            valid_samples_array = \
+                                root_ds[valid_samples_path][()]
+
+                            for row in range(valid_samples_length):
+                                x_min, x_max = valid_samples_array[row, :] - x0
+
+                                if (x_min > x_max and x_min <= new_xf and
+                                        x_max >= 0):
+
+                                    print(f'row {row}: no valid samples')
+                                    continue
+                                elif x_min > x_max:
+
+                                    valid_samples_array[row, :] = [1, 0]
+                                    continue
+
+                                valid_samples_array[row, :] = \
+                                    np.clip(valid_samples_array[row, :],
+                                            0, new_xf)
+
+                            self.update_h5_data(root_ds, valid_samples_path,
+                                                valid_samples_array)
 
     def update_h5_data(self, root_ds, image_path, new_image_data):
         new_dataset = root_ds.create_dataset(
@@ -1109,7 +1211,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
     def save_runconfig_file(self, nisar_product_obj):
 
-        h5_obj = h5py.File(self.input_file, 'r')
+        h5_obj = plant.h5py_file_wrapper(self.input_file, 'r')
 
         runconfig_path = (f'/science/LSAR/{nisar_product_obj.productType}/'
                           'metadata/processingInformation/'
@@ -1138,7 +1240,7 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
         if plant_product_obj.sensor_name == 'NISAR':
 
-            h5_obj = h5py.File(self.input_file, 'r')
+            h5_obj = plant.h5py_file_wrapper(self.input_file, 'r')
 
             flag_has_polygon = True
             polygon_dataset = '//science/LSAR/identification/boundingPolygon'

@@ -748,22 +748,13 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 vsis3_product_path = s3_product_path.replace(
                     's3://', '/vsis3/')
 
-                kwargs = {
-                    'secret_id': np.bytes_(creds["aws_access_key_id"]),
-                    'secret_key': np.bytes_(creds["aws_secret_access_key"]),
-                    'aws_region': np.bytes_(creds["region_name"])
-                }
+                h5_obj = plant.h5py_file_wrapper(s3_product_path)
 
-                if creds["aws_session_token"]:
-                    kwargs["session_token"] = \
-                        np.bytes_(creds["aws_session_token"])
-
-                h5_obj = h5py.File(s3_product_path, driver='ros3',
-                                   **kwargs)
                 self.nisar_product_obj = open_product(s3_product_path)
 
             else:
-                h5_obj = h5py.File(os.path.join(path, f), swmr=True)
+                h5_obj = plant.h5py_file_wrapper(os.path.join(path, f),
+                                                 swmr=True)
                 self.nisar_product_obj = open_product(os.path.join(path, f))
 
             current_file_product_type = get_product_type(h5_obj)
