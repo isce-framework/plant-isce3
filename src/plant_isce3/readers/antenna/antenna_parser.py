@@ -5,6 +5,7 @@ import numpy as np
 import re
 from dataclasses import dataclass
 import typing
+import plant
 
 from isce3 import antenna as ant
 
@@ -78,8 +79,8 @@ class AntennaParser:
 
     def __init__(self, filename):
         self._filename = filename
-        self._fid = h5py.File(filename, mode='r', libver='latest',
-                              swmr=True)
+        self._fid = plant.h5py_file_wrapper(filename, mode='r', libver='latest',
+                                            swmr=True)
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self._filename})"

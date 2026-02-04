@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
 import warnings
+import plant
 from scipy.interpolate import interp1d as lut1d
 
 from isce3.antenna import CrossTalk
@@ -64,7 +65,7 @@ class InstrumentParser:
 
     def __init__(self, filename):
         self._filename = filename
-        self._fid = h5py.File(filename, mode='r')
+        self._fid = plant.h5py_file_wrapper(filename, mode='r')
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self._filename})"

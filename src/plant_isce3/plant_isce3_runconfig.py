@@ -61,6 +61,11 @@ def get_parser():
                               ' dB. "nan" to disable it'
                               ' (default: %(default)s)'))
 
+    parser.add_argument('--rtc-dem-upsampling',
+                        dest='rtc_dem_upsampling',
+                        type=float,
+                        help='RTC DEM upsampling factor.')
+
     parser.add_argument('--full-covariance',
                         '--fullcovariance',
                         dest='full_covariance',
@@ -156,7 +161,7 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
         freq_b_dx = None
         freq_b_dy = None
 
-        if self.workflow_name == 'GSLC':
+        if self.workflow_name.upper() == 'GSLC':
             freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy = \
                 self.get_pixel_spacing_gslc(
                     freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy, slc_obj)
@@ -164,6 +169,13 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
             freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy = \
                 self.get_pixel_spacing_gcov(
                     freq_a_dx, freq_a_dy, freq_b_dx, freq_b_dy, slc_obj)
+
+            if self.rtc_dem_upsampling is None:
+                freq_a_bandwidth_mhz = int(np.round(
+                    slc_obj.getSwathMetadata('A').processed_range_bandwidth /
+                    1e6))
+                if freq_a_bandwidth_mhz == 40:
+                    self.rtc_dem_upsampling = 1.0
 
         if plant.isvalid(self.step_x) and 'A' in slc_obj.frequencies:
             freq_a_dx = self.step_x
@@ -227,6 +239,17 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
             if self.orbit_file:
                 groups['dynamic_ancillary_file_group']['orbit_file'] = \
                     self.orbit_file
+
+            if self.workflow_name.upper() == 'GCOV':
+
+                if (self.rtc_min_value_db is not None and
+                        plant.isvalid(self.rtc_min_value_db)):
+                    groups['processing']['rtc']['rtc_min_value_db'] = \
+                        self.rtc_min_value_db
+
+                if self.rtc_dem_upsampling is not None:
+                    groups['processing']['rtc']['dem_upsampling'] = \
+                        self.rtc_dem_upsampling
 
             groups['processing']['geocode']['output_epsg'] = int(self.epsg)
 
@@ -458,8 +481,10 @@ class PlantIsce3Runconfig(plant_isce3.PlantIsce3Script):
                     plant.isvalid(self.rtc_min_value_db)):
                 print('            rtc:', **kwargs)
                 print('                rtc_min_value_db:'
-                      f' {self.rtc_min_value_db}',
-                      **kwargs)
+                      f' {self.rtc_min_value_db}', **kwargs)
+            if self.rtc_dem_upsampling is not None:
+                print('                dem_upsampling:'
+                      f' {self.rtc_dem_upsampling}', **kwargs)
 
             if self.full_covariance:
                 print('            input_subset:', **kwargs)

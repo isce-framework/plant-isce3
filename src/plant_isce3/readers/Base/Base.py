@@ -75,7 +75,7 @@ def open_h5_file(
         # and optionally pass AWS credentials if needed
         driver_kwds = _get_driver_kwds()
 
-        return h5py.File(
+        return plant.h5py_file_wrapper(
             path_or_url,
             mode=mode,
             driver="ros3",
@@ -85,7 +85,7 @@ def open_h5_file(
         )
     else:
         # Open a local file
-        return h5py.File(
+        return plant.h5py_file_wrapper(
             path_or_url,
             mode=mode,
             libver=libver,

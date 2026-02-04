@@ -161,7 +161,7 @@ class PlantIsce3Topo(plant_isce3.PlantIsce3Script):
                     self.flag_local_incidence_angle is not True and
                     self.flag_projection_angle is not True and
                     self.flag_simulated_amplitude is not True and
-                    self.flag_layover_shadow is not True and
+                    self.flag_layover_shadow_mask is not True and
                     self.flag_los is not True)
 
         if self.output_dir and not os.path.isdir(self.output_dir):
@@ -243,7 +243,7 @@ class PlantIsce3Topo(plant_isce3.PlantIsce3Script):
 
         topo.topo(dem_raster, self.output_dir)
 
-        if not flag_all:
+        if flag_all:
             output_obj_list = glob.glob(os.path.join(self.output_dir,
                                                      '*.rdr'))
         for output_file in output_obj_list:

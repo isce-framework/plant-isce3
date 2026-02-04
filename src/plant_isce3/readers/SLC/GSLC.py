@@ -3,6 +3,7 @@ import h5py
 import numpy as np
 import pyre
 from isce3.core import speed_of_light
+import plant
 
 from .. import GenericSingleSourceL2Product
 from .SLCBase import SLCBase
@@ -31,7 +32,7 @@ class GSLC(SLCBase, GenericSingleSourceL2Product, family='nisar.productreader.gs
         )
 
         # open H5 with swmr mode enabled
-        with h5py.File(self.filename, 'r', libver='latest', swmr=True) as fid:
+        with plant.h5py_file_wrapper(self.filename, 'r', libver='latest', swmr=True) as fid:
             # get dataset
             dataset: h5py.Dataset = fid[boolPath]
 
