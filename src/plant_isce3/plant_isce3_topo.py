@@ -264,7 +264,8 @@ class PlantIsce3Topo(plant_isce3.PlantIsce3Script):
             gdal.GDT_Float32,
             "GTiff")
         plant.append_output_file(output_file)
-        output_obj_list.append(raster_obj)
+
+        output_obj_list.append(output_file)
         return raster_obj
 
 
