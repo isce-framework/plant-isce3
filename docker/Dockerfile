@@ -25,19 +25,23 @@ RUN curl -sSL "https://github.com/conda-forge/miniforge/releases/latest/download
 
 ENV PATH=${CONDA_PREFIX}/bin:${PATH}
 
-COPY ../environment.yml .
+COPY docker/environment.yml .
 
 RUN ${CONDA_PREFIX}/bin/conda init bash && \
-    conda config --prepend channels conda-forge &&\
-    conda config --append channels nodefaults &&\
-    conda config --set channel_priority strict &&\
-    conda config --set show_channel_urls True &&\
-    conda update --all --yes --channel conda-forge --override-channels &&\
+    conda config --prepend channels conda-forge && \
+    conda config --append channels nodefaults && \
+    conda config --set channel_priority strict && \
+    conda config --set show_channel_urls True && \
+    conda update --all --yes --channel conda-forge --override-channels && \
     conda env create --yes --file environment.yml
 
-# copy PLAnT-ISCE3 source code and set plant_isce3_user as owner
-COPY --chown=plant_isce3_user:plant_isce3_user . /home/plant_isce3_user/plant-isce3
+# Vestigial instructions from installing this library from source. Retained in case
+# this functionality is desired later. NOTE: currently bugged.
 
-RUN python -m pip install  --no-deps /home/plant_isce3_user/plant-isce3
+# copy PLAnT-ISCE3 source code and set plant_isce3_user as owner
+#COPY --chown=plant_isce3_user:plant_isce3_user . /home/plant_isce3_user/plant-isce3
+
+#COPY ../requirements.txt .
+#RUN python -m pip install /home/plant_isce3_user/plant-isce3
 
 WORKDIR /home/plant_isce3_user/plant-isce3

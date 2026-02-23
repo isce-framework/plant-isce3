@@ -1,0 +1,21 @@
+name: plant_isce3_env
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - boto3
+  - gdal>=3.8
+  - h5py
+  - isce3>=0.25.0
+  - libgdal-hdf5
+  - libgdal-netcdf
+  - libnetcdf
+  - matplotlib
+  - numpy>=1.25.2
+  - plant>=0.8.0
+  - plant-isce3
+  - pyre>=1.12.5
+  - pytest
+  - python>=3.10
+  - ruamel_yaml>=0.15
+  - scipy
