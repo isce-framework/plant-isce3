@@ -663,10 +663,6 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                 profiles_directory,
                 f'{self.prefix}backscatter'
                 f'_{freq}_processed{suffix_ml}.png')
-            processed_backscatter_hist_png_file = os.path.join(
-                profiles_directory,
-                f'{self.prefix}backscatter'
-                f'_{freq}_processed{suffix_ml}_hist.png')
             pol_file_list = []
             pol_list_sorted = sorted(pol_list)
             for pol in pol_list_sorted:
@@ -711,6 +707,26 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                 no_show=True,
                 crop_plots=True,
                 **image_kwargs)
+
+            processed_backscatter_hist_png_file = os.path.join(
+                profiles_directory,
+                f'{self.prefix}backscatter'
+                f'_{freq}_processed{suffix_ml}_hist.png')
+            pol_file_list = []
+            pol_list_sorted = sorted(pol_list)
+            for pol in pol_list_sorted:
+                pol_file = os.path.join(
+                    images_directory,
+                    f'backscatter_{freq}_processed_{pol}{suffix_ml}'
+                    '.tif')
+                if not os.path.isfile(pol_file):
+                    print(f'ERROR processed backscatter image file'
+                          f' {pol_file} not found. Consider rerunning'
+                          ' with the flag'
+                          ' --save-processed-backscatter-image'
+                          ' enabled.')
+                    continue
+                pol_file_list.append(pol_file)
 
             title = f'{backscatter_str} - Freq. {freq} ({data_exception_str})'
             plant.display(

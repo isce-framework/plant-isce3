@@ -42,6 +42,7 @@ plant_isce3_resample = "plant_isce3.plant_isce3_resample:main_cli"
 plant_isce3_runconfig = "plant_isce3.plant_isce3_runconfig:main_cli"
 plant_isce3_batch_processing = "plant_isce3.plant_isce3_batch_processing:main_cli"
 plant_isce3_rslc_eap_analysis = "plant_isce3.plant_isce3_rslc_eap_analysis:main_cli"
+plant_isce3_off_diagonal_analysis = "plant_isce3.plant_isce3_off_diagonal_analysis:main_cli"
 
 [tool.setuptools.dynamic]
 version = {attr = "plant_isce3.__version__"}

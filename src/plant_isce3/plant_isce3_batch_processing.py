@@ -266,6 +266,16 @@ def get_parser():
                         dest='step_2_generate_png',
                         help='Generate PNG files')
 
+    parser.add_argument('--step-2-generate-all-layers-kmz',
+                        action='store_true',
+                        dest='step_2_generate_all_layers_kmz',
+                        help='Generate KMZ files from all available layers')
+
+    parser.add_argument('--step-2-generate-all-layers-png',
+                        action='store_true',
+                        dest='step_2_generate_all_layers_png',
+                        help='Generate PNG files from all available layers')
+
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument('--masked-data',
                        '--masked-images',
@@ -478,7 +488,8 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             return
 
         if (not self.dem_file and
-            (self.step_2_generate_gcov_runconfig or self.step_2_generate_kmz or
+            (self.step_2_generate_gcov_runconfig or
+
              self.step_2_eap_analysis)):
             self.print('ERROR: --dem-file is required for the selected'
                        ' processing steps')
@@ -1362,7 +1373,9 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 h5_obj)
 
             if (cache_hdf5 is not None and
-                    not os.path.isfile(cache_hdf5)):
+                    not os.path.isfile(cache_hdf5) and
+                    (self.product_type is None or
+                     self.product_type == 'GCOV')):
                 print(f'        saving fast access HDF5 file: {cache_hdf5}')
 
                 hdf5_out_obj = self.create_nisar_product_cache(
@@ -1465,7 +1478,9 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                           ' Skipping.')
                     continue
 
-            if self.frequency is None:
+            if current_file_product_type == 'STATIC':
+                list_of_frequencies_dict = {None: None}
+            elif self.frequency is None:
                 list_of_frequencies_dict = self.nisar_product_obj.polarizations
             else:
                 if (self.frequency
@@ -1693,7 +1708,8 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
             for frequency, pols in list_of_frequencies_dict.items():
 
-                if frequency not in frequency_epsg_dict.keys():
+                if (current_file_product_type != 'STATIC' and
+                        frequency not in frequency_epsg_dict.keys()):
                     continue
 
                 if downloaded_file is None and flag_s3_bucket:
@@ -1704,8 +1720,8 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 self.run_process_native_coordinates_freq(
                     kwargs_color, kwargs_product_data_to_backscatter,
                     frequency_epsg_dict, downloaded_file, basename, epsg,
-                    output_dir, frequency, pols, current_product_level,
-                    kwargs_product_data_to_backscatter_str)
+                    output_dir, frequency, pols, current_file_product_type,
+                    current_product_level, kwargs_product_data_to_backscatter_str)
 
         return frequency_epsg_dict, mosaic_kmz_file_list
 
@@ -1995,27 +2011,31 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
     def run_process_native_coordinates_freq(
             self, kwargs_color, kwargs_product_data_to_backscatter,
             frequency_epsg_dict, downloaded_file, basename, epsg, output_dir,
-            frequency, pols, current_product_level,
+            frequency, pols, current_product_type, current_product_level,
             kwargs_product_data_to_backscatter_str):
 
         nlooks_y, nlooks_x = self.get_nlooks(frequency=frequency)
 
+        if current_product_type == 'STATIC':
+            frequency_str = ''
+        else:
+            frequency_str = f'_{frequency}'
         if (self.rtc_gamma_to_sigma_file):
-            suffix = (f'_{frequency}_rtc_gamma_to_sigma')
+            suffix = (f'{frequency_str}_rtc_gamma_to_sigma')
         elif (self.number_of_looks_file):
-            suffix = (f'_{frequency}_number_of_looks')
+            suffix = (f'{frequency_str}_number_of_looks')
         elif (self.elevation_antenna_pattern_file):
-            suffix = (f'_{frequency}_elevation_antenna_pattern')
+            suffix = (f'{frequency_str}_elevation_antenna_pattern')
         elif (self.noise_equivalent_backscatter_file):
-            suffix = (f'_{frequency}_noise_equivalent_backscatter')
+            suffix = (f'{frequency_str}_noise_equivalent_backscatter')
         elif (self.doppler_centroid_file):
-            suffix = (f'_{frequency}_doppler_centroid')
+            suffix = (f'{frequency_str}_doppler_centroid')
         elif nlooks_y != 1 or nlooks_x != 1:
             suffix_ml = f'_ml_{nlooks_y}_{nlooks_x}'
-            suffix = (f'_{frequency}{suffix_ml}')
+            suffix = (f'{frequency_str}{suffix_ml}')
         else:
             suffix_ml = ''
-            suffix = f'_{frequency}'
+            suffix = f'{frequency_str}'
 
         output_file = os.path.join(output_dir, basename + suffix + '.tif')
         output_kmz = os.path.join(output_dir, basename + suffix + '.kmz')
@@ -2042,7 +2062,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                         frequency=frequency,
                         output_skip_if_existent=self.output_skip_if_existent,
                         force=True,
-                        dem=self.dem_file,
+
                         generate_elevation_profiles=True,
                         remove_cross_multiplication_files=True,
                         nlooks_x=nlooks_x, nlooks_y=nlooks_y,
@@ -2142,10 +2162,14 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
         bands_rgb_kwargs = {}
 
-        nbands = len(pols)
-        if nbands == 4:
+        if current_product_type != 'STATIC':
+            nbands = len(pols)
+            if nbands == 4:
 
-            bands_rgb_kwargs['bands'] = '0,1,2'
+                bands_rgb_kwargs['bands'] = '0,1,2'
+        else:
+            nbands = 1
+            pols = [None]
 
         input_ref = f'NISAR:{downloaded_file}:{frequency}'
         if (self.step_2_generate_cog_rgb and not os.path.isfile(output_file)):
@@ -2171,8 +2195,12 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 print(f'***        skipping polarization {pol} based on user'
                       ' input')
                 continue
-            output_file_pol = \
-                os.path.join(output_dir, f'{basename}{suffix}_{pol}.tif')
+            if pol is not None:
+                output_file_pol = \
+                    os.path.join(output_dir, f'{basename}{suffix}_{pol}.tif')
+            else:
+                output_file_pol = \
+                    os.path.join(output_dir, f'{basename}{suffix}.tif')
 
             if (self.step_2_generate_cog_parallel and
                     not os.path.isfile(output_file_pol)):
@@ -2205,8 +2233,9 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                     **kwargs_product_data_to_backscatter)
 
                 end_time = time.time()
-                print(f'        time to generate COG for pol {pol}:'
-                      f' {end_time - start_time:.2f} seconds')
+                if pol is not None:
+                    print(f'        time to generate COG for pol {pol}:'
+                          f' {end_time - start_time:.2f} seconds')
 
         if self.step_2_generate_cog_parallel and len(processes) > 0:
 
@@ -2273,7 +2302,8 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             plant_isce3.geocode(rslc_file,
 
                                 dem_file=self.dem_file,
-                                output_file=output_kmz, force=True,
+                                output_file=output_kmz,
+                                force=True,
 
                                 **bands_rgb_kwargs,
                                 **kwargs_color)
@@ -2289,12 +2319,45 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                              nlooks_y=nlooks_y,
                              cmap_max=self.cmap_max,
                              cmap_min=self.cmap_min,
-                             output_file=output_png, force=True,
+                             output_file=output_png,
+                             force=True,
+                             prefix=f'{basename}_',
                              **masked_data_kwargs,
 
                              **kwargs_product_data_to_backscatter,
                              **bands_rgb_kwargs,
                              **kwargs_color)
+
+        if (self.step_2_generate_all_layers_kmz and
+                current_product_level == 'L2'):
+            input_ref = f'NISAR:{downloaded_file}:{frequency}'
+            plant_isce3.util(input_ref,
+                             output_dir=os.path.join(output_dir, basename),
+
+                             nlooks_x=nlooks_x,
+                             nlooks_y=nlooks_y,
+                             output_file=output_kmz,
+                             all_layers=True,
+                             prefix=f'{basename}_',
+                             ext='.kmz',
+                             force=True
+
+                             )
+
+        if self.step_2_generate_all_layers_png:
+            input_ref = f'NISAR:{downloaded_file}:{frequency}'
+            plant_isce3.util(input_ref,
+                             output_dir=os.path.join(output_dir, basename),
+
+                             nlooks_x=nlooks_x,
+                             nlooks_y=nlooks_y,
+
+                             output_file=output_png,
+                             all_layers=True,
+                             ext='.png',
+                             force=True,
+
+                             )
 
     def create_tiles(self, flag_generate_tiles, flag_generate_tiles_parallel,
                      flag_generate_tiles_kmz,
@@ -2680,11 +2743,14 @@ def get_list_of_input_l0b_granules_from_source_data(
 
 def get_product_epsg(h5_obj, product_type):
 
-    list_of_frequencies = h5_obj['/science/LSAR/identification/'
-                                 'listOfFrequencies']
-    first_frequency = list_of_frequencies[0].decode()
-    projection = h5_obj[f'/science/LSAR/{product_type}/grids/'
-                        f'frequency{first_frequency}/projection']
+    if product_type is None or product_type != 'STATIC':
+        list_of_frequencies = h5_obj['/science/LSAR/identification/'
+                                     'listOfFrequencies']
+        first_frequency = list_of_frequencies[0].decode()
+        projection = h5_obj[f'/science/LSAR/{product_type}/grids/'
+                            f'frequency{first_frequency}/projection']
+    else:
+        projection = h5_obj[f'/science/LSAR/STATIC/grids/projection']
     epsg_code = projection.attrs['epsg_code']
     return epsg_code
 

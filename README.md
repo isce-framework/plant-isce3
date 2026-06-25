@@ -9,41 +9,70 @@ ISCE3 repository: https://github.com/isce-framework/isce3
 
 PLAnT repository: https://gitlab.com/plant/plant
 
----
-
-Copyright 2022, by the California Institute of Technology. ALL RIGHTS RESERVED. United States Government Sponsorship acknowledged. Any commercial use must be negotiated with the Office of Technology Transfer at the California Institute of Technology.
-
-This software may be subject to U.S. export control laws. By accepting this software, the user agrees to comply with all applicable U.S. export laws and regulations. User has the responsibility to obtain export licenses, or other export authority as may be required before exporting such information to foreign countries or providing access to foreign persons.
-
----
+# License
+Licensing and legal notices are provided in LICENSE.txt.
 
 # Installation
 
-## 1. From conda-forge (Recommended)
+**Requirements:**
+- Python >= 3.9
+- ISCE3 >= 0.25.0
+- PLAnT >= 0.8.4
+- Dependencies listed in `requirements.txt`
+
+## 1. Install from conda-forge (Recommended)
+
+Install PLAnT-ISCE3 and all its dependencies from `conda-forge`:
 
 ```bash
 conda install plant-isce3 -c conda-forge
 ```
 
-## 2. Conda/pip
-1. Clone PLAnT-ISCE3 repository
-2. Install PLAnT-ISCE3 using pip:
+## 2. Install from Source Using pip
+
+1. Clone the PLAnT-ISCE3 repository:
 ```bash
 git clone https://github.com/isce-framework/plant-isce3.git
 cd plant-isce3
+```
+
+2. Install dependencies:
+```bash
+# Using conda (recommended)
+conda env create -f environment.yml
+conda activate plant_isce3_env
+
+# Or install dependencies manually
+conda install --yes --file requirements.txt
+```
+
+3. Install PLAnT-ISCE3:
+```bash
 python -m pip install .
 ```
 
-## 3. From a conda environment, manually setting PATH and PYTHONPATH environment variables
-1. Clone PLAnT-ISCE3 repository
-2. Install PLAnT-ISCE3 dependencies listed in `requirements.txt`
-3. Add PLAnT-ISCE3 parent folder to PYTHONPATH variable
-4. Add PLAnT-ISCE3 applications folder to PATH variable
+## 3. Manual Installation with Environment Variables
 
+For development or advanced users who want to run PLAnT-ISCE3 without installing:
+
+1. Clone PLAnT-ISCE3 repository:
 ```bash
 git clone https://github.com/isce-framework/plant-isce3.git
 cd plant-isce3
-export PLANT_ISCE3_HOME=$PWD/src
-export PYTHONPATH=${PYTHONPATH}:${PLANT_ISCE3_HOME}
-export PATH=${PATH}:${PLANT_ISCE3_HOME}/plant_isce3
 ```
+
+2. Install dependencies:
+```bash
+conda install --yes --file requirements.txt
+```
+
+3. Set environment variables:
+```bash
+# Add PLAnT-ISCE3 to PYTHONPATH
+export PYTHONPATH=${PYTHONPATH}:$PWD/src
+
+# Add PLAnT-ISCE3 applications to system PATH
+export PATH=${PATH}:$PWD/src/plant_isce3/
+```
+
+**Note:** These environment variables need to be set each time you start a new shell session. To make them persistent, add them to your ~/.bashrc, ~/.zshrc, or equivalent shell startup file.

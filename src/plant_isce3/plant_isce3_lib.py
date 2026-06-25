@@ -652,6 +652,9 @@ def get_nisar_product_cycle_number(h5_obj, flag_no_offset=False):
 
     absolute_orbit_number = get_nisar_product_absolute_orbit_number(h5_obj)
 
+    if absolute_orbit_number is None:
+        return
+
     mission_id = get_nisar_product_mission_id(h5_obj)
 
     if mission_id == 'NISAR' and not flag_no_offset:

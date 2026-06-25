@@ -551,7 +551,15 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
 
             return
 
-        if self.frequency is None:
+        if nisar_product_obj.productType == 'STATIC':
+            freq_pol_dict = {None: None}
+            if self.frequency is not None:
+                print('WARNING the NISAR STATIC product does not'
+                      ' contain frequency information; '
+                      'ignoring the --frequency parameter.')
+                self.frequency = None
+
+        elif self.frequency is None:
             freq_pol_dict = nisar_product_obj.polarizations
             self.frequency = list(freq_pol_dict.keys())[0]
             print('WARNING frequency not specified, using first'
@@ -602,8 +610,10 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                 f'{az_time_line_start}:{az_time_line_end + 1}'
 
         metadata_path = nisar_product_obj.MetadataPath
-        pol_list = nisar_product_obj.polarizations[self.frequency]
-        prefix = self.file_prefix
+        if nisar_product_obj.productType == 'STATIC':
+            pol_list = [None]
+        else:
+            pol_list = nisar_product_obj.polarizations[self.frequency]
 
         if self.output_ext:
             ext = self.output_ext
@@ -1101,22 +1111,18 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
                     self.output_dir,
                     f'{prefix}{static_layer}{suffix}.{ext}')
 
-                try:
-                    if static_layer == 'layoverShadowMask':
+                if static_layer == 'layoverShadowMask':
 
-                        self.save_layover_shadow_mask(
-                            nisar_product_obj=nisar_product_obj)
-                        continue
-                    if static_layer == 'waterMask':
+                    self.save_layover_shadow_mask(
+                        nisar_product_obj=nisar_product_obj)
+                    continue
+                if static_layer == 'waterMask':
 
-                        self.save_binary_water_mask(
-                            nisar_product_obj=nisar_product_obj)
-                        continue
+                    self.save_binary_water_mask(
+                        nisar_product_obj=nisar_product_obj)
+                    continue
 
-                    self.save_nisar_layer(static_layer, nisar_product_obj)
-                except Exception as e:
-                    print('WARNING there was an error saving static layer'
-                          f' {static_layer}. Error message: "{e}"')
+                self.save_nisar_layer(static_layer, nisar_product_obj)
 
             return
 
@@ -1432,18 +1438,17 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         image_obj = self.get_grids_ref(
             'layoverShadowMask', self.frequency, nisar_product_obj, image_obj)
 
+        layover_shadow_mask_ctable = self.get_layover_shadow_mask_ctable()
         if self.nlooks_az != 1 or self.nlooks_rg != 1:
 
-            plant.filter(image_obj, output_file=self.output_file,
+            image_obj = plant.filter(image_obj, output_file=self.output_file,
 
-                         nlooks=[self.nlooks_az, self.nlooks_rg],
-                         null=255,
-                         force=self.force)
+                                     nlooks=[self.nlooks_az, self.nlooks_rg],
+                                     null=255,
+                                     force=self.force)
 
-        else:
-            layover_shadow_mask_ctable = self.get_layover_shadow_mask_ctable()
-            self.save_image(image_obj, output_file=self.output_file,
-                            out_null=255, ctable=layover_shadow_mask_ctable)
+        self.save_image(image_obj, output_file=self.output_file,
+                        out_null=255, ctable=layover_shadow_mask_ctable)
         plant.append_output_file(self.output_file)
 
     def save_binary_water_mask(self, nisar_product_obj=None,
@@ -1452,18 +1457,18 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         image_obj = self.get_grids_ref('waterMask', self.frequency,
                                        nisar_product_obj, image_obj)
 
+        binary_water_mask_ctable = self.get_binary_water_mask_ctable()
         if self.nlooks_az != 1 or self.nlooks_rg != 1:
 
-            plant.filter(image_obj, output_file=self.output_file,
+            image_obj = plant.filter(
+                image_obj, output_file=self.output_file,
 
-                         nlooks=[self.nlooks_az, self.nlooks_rg],
-                         null=255,
-                         force=self.force)
+                nlooks=[self.nlooks_az, self.nlooks_rg],
+                null=255,
+                force=self.force)
 
-        else:
-            binary_water_mask_ctable = self.get_binary_water_mask_ctable()
-            self.save_image(image_obj, output_file=self.output_file,
-                            out_null=255, ctable=binary_water_mask_ctable)
+        self.save_image(image_obj, output_file=self.output_file,
+                        out_null=255, ctable=binary_water_mask_ctable)
         plant.append_output_file(self.output_file)
 
     def save_lut(self, h5_path, pol_list=[], flag_skip_if_error=True,
