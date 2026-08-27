@@ -55,6 +55,11 @@ def get_parser():
         help='Prevent PLAnT from applying requested transformations'
         ' (e.g. crop, absolute, phase) to input raster')
 
+    parser.add_argument('--fill-value',
+                        dest='fill_value',
+                        type=float,
+                        help='Fill value')
+
     parser.add_argument('--cov',
                         '--cov-matrix',
                         '--covariance-matrix',
@@ -431,6 +436,11 @@ class PlantIsce3Geocode(plant_isce3.PlantIsce3Script):
         kwargs['flag_apply_rtc'] = flag_apply_rtc
 
         input_rtc_obj = None
+
+        if plant.isvalid(self.fill_value):
+            print('*** new code!!!')
+            print('self.fill_value:', self.fill_value)
+            kwargs['fill_value'] = self.fill_value
 
         if flag_apply_rtc:
             if flag_rtc_bilinear_distribution:
