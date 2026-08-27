@@ -554,6 +554,9 @@ class PlantIsce3Util(plant_isce3.PlantIsce3Script):
         if nisar_product_obj.productType == 'STATIC':
             freq_pol_dict = {None: None}
             if self.frequency is not None:
+                print(f'*** self.frequency: {self.frequency}')
+                print('*** self.frequency class: '
+                      f'{self.frequency.__class__}')
                 print('WARNING the NISAR STATIC product does not'
                       ' contain frequency information; '
                       'ignoring the --frequency parameter.')

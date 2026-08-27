@@ -122,6 +122,17 @@ def get_parser():
                         dest='must_not_be_mixed_mode',
                         help='Require products not to be mixed mode')
 
+    parser.add_argument('--must-be-joint-observation',
+                        action='store_true',
+                        dest='must_be_joint_observation',
+                        help='Require products to be joint observation')
+
+    parser.add_argument('--must-not-be-joint-observation',
+                        '--exclude-joint-observation',
+                        action='store_true',
+                        dest='must_not_be_joint_observation',
+                        help='Require products not to be joint observation')
+
     parser.add_argument('--step-1-load-pickle-files',
                         action='store_true',
                         dest='step_1_load_pickle_files',
@@ -299,7 +310,7 @@ def get_parser():
                              " product"))
 
     group.add_argument('--eap',
-                       '--elevation-antenna-patter',
+                       '--elevation-antenna-pattern',
                        dest='elevation_antenna_pattern_file',
                        action='store_true',
                        help=("Extract elevation antenna pattern (EAP) layer."))
@@ -664,54 +675,78 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                                                        dict_filename):
                     continue
 
-                print('*** filename meets requirements, processing file')
-
-                image_obj = plant.read_image(tif_file)
-                metadata = image_obj.metadata
-                if metadata is None:
-                    print('====================================')
-                    print('====================================')
-                    print('====================================')
-                    print(f'WARNING No metadata found for file: {tif_file}.'
-                          ' Skipping.')
-                    print(f'WARNING No metadata found for file: {tif_file}.'
-                          ' Skipping.')
-                    print(f'WARNING No metadata found for file: {tif_file}.'
-                          ' Skipping.')
-                    print('====================================')
-                    print('====================================')
-                    print('====================================')
-                    continue
+                print('*** filename meets requirements')
 
                 frequency = None
                 pol = None
                 bounding_polygon_wkt = None
-                if metadata is None:
-                    print('tif_file:', tif_file)
-                    raise ValueError('TIF file has no valid metadata:'
-                                     f' {tif_file}')
-                for key, value in metadata.items():
 
-                    if key == 'FREQUENCY':
-                        frequency = value
-                        print('*** frequency:', frequency)
-                        continue
-                    if key == 'POLARIZATION':
-                        pol = value
-                        print('*** polarization:', pol)
-                    if key == 'BOUNDING_POLYGON':
-                        bounding_polygon_wkt = value
-                        print('*** bounding polygon:', bounding_polygon_wkt)
-
-                if (frequency is None and dict_filename is not None and
+                if (dict_filename is not None and
                         'frequency' in dict_filename.keys()):
                     frequency = dict_filename['frequency']
-                    print('*** frequency from filename:', frequency)
-
-                if (pol is None and dict_filename is not None and
+                    print(f'*** frequency from filename: {frequency}')
+                if (dict_filename is not None and
                         'polarization' in dict_filename.keys()):
                     pol = dict_filename['polarization']
-                    print('*** polarization from filename:', pol)
+                    print(f'*** polarization from filename: {pol}')
+
+                flag_verify_metadata = (
+                    self.must_be_joint_observation or
+                    self.must_not_be_joint_observation
+                )
+                print(f'*** flag verify metadata: {flag_verify_metadata}')
+
+                if (dict_filename is not None and
+                        'granule_id' in dict_filename.keys()):
+                    granule_id = dict_filename['granule_id']
+                    print(f'*** granule ID: {granule_id}')
+                    cache_hdf5 = \
+                        os.path.join(self.cache_directory,
+                                     f'{granule_id}_cache.h5')
+                    if os.path.isfile(cache_hdf5):
+                        print(f'*** found cache file: {cache_hdf5}')
+
+                        h5_obj = plant.h5py_file_wrapper(cache_hdf5, swmr=True)
+                        print('*** done opening cache file')
+                        try:
+                            self.nisar_product_obj = open_product(cache_hdf5)
+                            print('*** done creating product object')
+
+                        except BaseException:
+                            print(
+                                'WARNING there was an error reading cache file:' f' {cache_hdf5}.')
+
+                        is_joint_observation = \
+                            plant_isce3.get_nisar_product_is_joint_observation(h5_obj)
+
+                        print(
+                            '*** is joint observation:',
+                            is_joint_observation)
+
+                        if self.must_be_joint_observation and not is_joint_observation:
+                            print('*** not joint observation. Skipping.')
+                            continue
+
+                        if self.must_not_be_joint_observation and is_joint_observation:
+                            print('*** joint observation. Skipping')
+                            continue
+
+                        bounding_polygon_wkt = \
+                            plant_isce3.get_nisar_product_bounding_polygon(h5_obj)
+
+                        print('*** metadata meets requirements')
+                    elif flag_verify_metadata:
+                        error_msg = ('Must verify metadata but could not find cache file:'
+                                     f'{cache_hdf5} for file {tif_file}')
+                        raise error_msg
+                else:
+                    error_msg = ('Must verify metadata but could not determine'
+                                 f' granule ID for file {tif_file}')
+                    raise error_msg
+
+                print('*** processing file')
+
+                image_obj = plant.read_image(tif_file)
 
                 if frequency is None or pol is None:
                     print(f'***    Unrecognized file: {tif_file}. Skipping.')
@@ -761,6 +796,9 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
                     print('*** bounding polygon in WKT format:'
                           f' {bounding_polygon_wkt}')
+                else:
+                    bounding_polygon = ogr.CreateGeometryFromWkt(
+                        bounding_polygon_wkt)
 
                 min_lon, max_lon, min_lat, max_lat, center_lon, center_lat = \
                     self.get_polygon_parameters(bounding_polygon)
@@ -1344,15 +1382,20 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 print(f'        opening cache HDF5 file for fast access:'
                       f' {cache_hdf5}')
                 h5_obj = plant.h5py_file_wrapper(cache_hdf5, swmr=True)
+                print('*** done opening cache file')
                 try:
                     self.nisar_product_obj = open_product(cache_hdf5)
+                    print('*** done creating product object')
 
                 except BaseException:
                     print('WARNING there was an error reading cache file:'
                           f' {cache_hdf5}. Deleting corrupted file.')
                     os.remove(cache_hdf5)
 
-            if self.nisar_product_obj is None or flag_s3_bucket:
+            print('*** self.nisar_product_obj is None:',
+                  self.nisar_product_obj is None)
+            print('*** flag_s3_bucket:', flag_s3_bucket)
+            if self.nisar_product_obj is None and flag_s3_bucket:
 
                 print('*** opening product at s3 path:', s3_product_path)
                 h5_obj = plant.h5py_file_wrapper(s3_product_path)
@@ -1411,13 +1454,18 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             else:
                 frame_number = None
 
-            is_mixed_mode = bool(
-                plant_isce3.get_nisar_product_is_mixed_mode(h5_obj))
+            is_mixed_mode = \
+                plant_isce3.get_nisar_product_is_mixed_mode(h5_obj)
             print('*** is_mixed_mode:', is_mixed_mode)
 
-            is_full_frame = bool(
-                plant_isce3.get_nisar_product_is_full_frame(h5_obj))
-            print('*** is_full_frame:', is_full_frame)
+            is_full_frame = \
+                plant_isce3.get_nisar_product_is_full_frame(h5_obj)
+            print('*** is full frame:', is_full_frame)
+
+            is_joint_observation = \
+                plant_isce3.get_nisar_product_is_joint_observation(h5_obj)
+
+            print('*** is joint observation:', is_joint_observation)
 
             zero_doppler_start_time = \
                 plant_isce3.get_nisar_product_zero_doppler_start_time(h5_obj)
@@ -1508,6 +1556,14 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                           list_of_frequencies_dict['B'])
                     continue
                 print('    quad-pol check passed')
+
+            if self.must_be_joint_observation and not is_joint_observation:
+                print('*** not joint observation. Skipping.')
+                continue
+
+            if self.must_not_be_joint_observation and is_joint_observation:
+                print('*** joint observation. Skipping')
+                continue
 
             product_count += 1
 
@@ -2171,7 +2227,13 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             nbands = 1
             pols = [None]
 
-        input_ref = f'NISAR:{downloaded_file}:{frequency}'
+        if frequency is None:
+            print('*** frequency is None')
+            input_ref = downloaded_file
+        else:
+            print(f'*** frequency is not None: {frequency}')
+            input_ref = f'NISAR:{downloaded_file}:{frequency}'
+
         if (self.step_2_generate_cog_rgb and not os.path.isfile(output_file)):
 
             plant_isce3.util(
@@ -2205,7 +2267,6 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             if (self.step_2_generate_cog_parallel and
                     not os.path.isfile(output_file_pol)):
 
-                input_ref = f'NISAR:{downloaded_file}:{frequency}'
                 command = \
                     (f'python3 {self.plant_isce3_util_path} {input_ref}'
                      f' --nlooks-x {nlooks_x}'
@@ -2219,7 +2280,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
             elif (self.step_2_generate_cog and
                     not os.path.isfile(output_file_pol)):
                 start_time = time.time()
-                input_ref = f'NISAR:{downloaded_file}:{frequency}'
+
                 plant_isce3.util(
                     input_ref,
 
@@ -2281,7 +2342,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
         elif (self.step_2_generate_kmz and not os.path.isfile(output_kmz) and
               current_product_level == 'L2'):
-            input_ref = f'NISAR:{downloaded_file}:{frequency}'
+
             plant_isce3.util(
                 input_ref,
 
@@ -2312,7 +2373,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                 os.path.isfile(output_file)):
             self.util(output_file, output_file=output_png, force=True)
         elif (self.step_2_generate_png and not os.path.isfile(output_png)):
-            input_ref = f'NISAR:{downloaded_file}:{frequency}'
+
             plant_isce3.util(input_ref,
 
                              nlooks_x=nlooks_x,
@@ -2330,7 +2391,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
         if (self.step_2_generate_all_layers_kmz and
                 current_product_level == 'L2'):
-            input_ref = f'NISAR:{downloaded_file}:{frequency}'
+
             plant_isce3.util(input_ref,
                              output_dir=os.path.join(output_dir, basename),
 
@@ -2345,7 +2406,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                              )
 
         if self.step_2_generate_all_layers_png:
-            input_ref = f'NISAR:{downloaded_file}:{frequency}'
+
             plant_isce3.util(input_ref,
                              output_dir=os.path.join(output_dir, basename),
 

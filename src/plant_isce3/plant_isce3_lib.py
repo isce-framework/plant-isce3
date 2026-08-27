@@ -678,14 +678,28 @@ def get_nisar_product_frame_number(h5_obj):
     return get_nisar_identification_scalar(h5_obj, 'frameNumber')
 
 
+def str_to_bool(value):
+    if value.lower() == "true":
+        return True
+    if value.lower() == "false":
+        return False
+    raise ValueError(f"Invalid boolean string: {value}")
+
+
 def get_nisar_product_is_mixed_mode(h5_obj):
 
-    return get_nisar_identification_scalar(h5_obj, 'isMixedMode')
+    return str_to_bool(get_nisar_identification_scalar(h5_obj, 'isMixedMode'))
 
 
 def get_nisar_product_is_full_frame(h5_obj):
 
-    return get_nisar_identification_scalar(h5_obj, 'isFullFrame')
+    return str_to_bool(get_nisar_identification_scalar(h5_obj, 'isFullFrame'))
+
+
+def get_nisar_product_is_joint_observation(h5_obj):
+
+    return str_to_bool(get_nisar_identification_scalar(h5_obj,
+                                                       'isJointObservation'))
 
 
 def get_nisar_product_zero_doppler_start_time(h5_obj):
@@ -2239,9 +2253,9 @@ class PlantIsce3Script(plant.PlantScript):
     def get_mask_ctable(self, mask_array):
         mask_ctable = gdal.ColorTable()
 
-        mask_ctable.SetColorEntry(0, (175, 175, 175))
+        mask_ctable.SetColorEntry(0, (175, 175, 175, 255))
 
-        mask_ctable.SetColorEntry(255, (0, 0, 0))
+        mask_ctable.SetColorEntry(255, (0, 0, 0, 0))
 
         if not self.cmap:
             self.cmap = 'viridis'
@@ -2254,32 +2268,32 @@ class PlantIsce3Script(plant.PlantScript):
                                             flag_decreasing=True,
                                             n_colors=n_subswaths + 2,
                                             cmap=self.cmap)
-            color_rgb = tuple([int(255 * x) for x in color[0:3]])
-            mask_ctable.SetColorEntry(subswath, color_rgb)
+            color_rgba = tuple(int(255 * x) for x in color[:3]) + (255,)
+            mask_ctable.SetColorEntry(subswath, color_rgba)
         return mask_ctable
 
     def get_layover_shadow_mask_ctable(self):
         layover_shadow_mask_ctable = gdal.ColorTable()
 
-        layover_shadow_mask_ctable.SetColorEntry(0, (175, 175, 175))
+        layover_shadow_mask_ctable.SetColorEntry(0, (175, 175, 175, 255))
 
-        layover_shadow_mask_ctable.SetColorEntry(1, (64, 64, 64))
+        layover_shadow_mask_ctable.SetColorEntry(1, (64, 64, 64, 255))
 
-        layover_shadow_mask_ctable.SetColorEntry(2, (223, 223, 223))
+        layover_shadow_mask_ctable.SetColorEntry(2, (223, 223, 223, 255))
 
-        layover_shadow_mask_ctable.SetColorEntry(3, (0, 255, 255))
+        layover_shadow_mask_ctable.SetColorEntry(3, (0, 255, 255, 255))
 
-        layover_shadow_mask_ctable.SetColorEntry(11, (32, 32, 32))
+        layover_shadow_mask_ctable.SetColorEntry(11, (32, 32, 32, 255))
 
-        layover_shadow_mask_ctable.SetColorEntry(13, (0, 128, 128))
+        layover_shadow_mask_ctable.SetColorEntry(13, (0, 128, 128, 255))
 
-        layover_shadow_mask_ctable.SetColorEntry(22, (255, 255, 255))
+        layover_shadow_mask_ctable.SetColorEntry(22, (255, 255, 255, 255))
 
-        layover_shadow_mask_ctable.SetColorEntry(23, (128, 255, 255))
+        layover_shadow_mask_ctable.SetColorEntry(23, (128, 255, 255, 255))
 
-        layover_shadow_mask_ctable.SetColorEntry(33, (128, 128, 128))
+        layover_shadow_mask_ctable.SetColorEntry(33, (128, 128, 128, 255))
 
-        layover_shadow_mask_ctable.SetColorEntry(255, (0, 0, 0))
+        layover_shadow_mask_ctable.SetColorEntry(255, (0, 0, 0, 0))
         return layover_shadow_mask_ctable
 
     def get_dem_interp_method(self):
