@@ -5,10 +5,18 @@ import shutil
 from osgeo import gdal
 import numpy as np
 
-import isce3
 import os
 
 from scipy.interpolate import interp1d
+from scipy.ndimage import binary_dilation
+
+import json
+import os
+
+import fiona
+import geopandas as gpd
+import pandas as pd
+from shapely import wkt
 
 import plant
 import plant_isce3
@@ -53,6 +61,14 @@ def get_parser():
 
                         type=str,
                         help='Absolute radiometric calibration factor')
+
+    parser.add_argument('--minimum-azimuth-valid-percentage',
+                        dest='minimum_azimuth_valid_percentage',
+                        default=25,
+                        type=float,
+                        help=('Minimum percentage of valid pixels in the'
+                              ' azimuth direction required for a pixel to'
+                              ' be considered valid.'))
 
     parser.add_argument('--pol-list',
                         dest='pol_list',
@@ -112,6 +128,11 @@ def get_parser():
                         dest='flag_ignore_noise',
                         help='Ignore noise in profile calculation')
 
+    parser.add_argument('--add-error-fill',
+                        action='store_true',
+                        dest='flag_add_error_fill',
+                        help='Flag add error fill')
+
     parser.add_argument('--generate-elevation-profiles',
                         action='store_true',
                         dest='flag_generate_elevation_profiles',
@@ -141,6 +162,29 @@ def get_parser():
                         type=str,
                         help='WorldCover land cover map for selecting'
                         ' vegetated areas')
+
+    parser.add_argument('--only-eap-stats',
+                        action='store_true',
+                        dest='flag_only_eap_stats',
+                        help=('Process EAP statistics only (skip EAP analysis'
+                              ' and plot generation)'))
+
+    parser.add_argument('--skip-existent-eap-stats',
+                        action='store_true',
+                        dest='flag_skip_existent_eap_stats',
+                        help='Skip calculating existent EAP stats')
+
+    parser.add_argument('--minimum-vegetation-fraction',
+                        dest='minimum_vegetation_fraction',
+
+                        type=float,
+                        help='Minimum vegetation fraction.')
+
+    parser.add_argument('--out-eap-stats-file',
+                        '--output-eap-stats-file',
+                        dest='output_eap_stats_file',
+                        type=str,
+                        help='Output GeoPandas EAP stats file')
 
     parser.add_argument('--topo-dir-a',
                         '--topo-file-a',
@@ -295,6 +339,99 @@ def smooth_edges(x, transition_width, offset_left=0, offset_right=0,
     return y
 
 
+def update_vegetation_gpkg(
+    cycle: int,
+    track: int,
+    frame: int,
+    frequency: str,
+    max_rfi_likelihood: float,
+    vegetation_fraction: float,
+    acquisition_mode_list: list,
+    wkt_polygon: str,
+    filename: str,
+    layer: str = "vegetation",
+    hh: float = None,
+    hv: float = None,
+    vh: float = None,
+    vv: float = None,
+) -> gpd.GeoDataFrame:
+
+    print('executing: update_vegetation_gpkg()')
+
+    geometry = wkt.loads(wkt_polygon)
+
+    if geometry.geom_type != "Polygon":
+        raise ValueError(
+            f"Expected a Polygon, got {geometry.geom_type}."
+        )
+
+    record = {
+        "cycle": cycle,
+        "track": track,
+        "frame": frame,
+        "frequency": frequency,
+        "max_rfi_likelihood": max_rfi_likelihood,
+        "vegetation_fraction": vegetation_fraction,
+        "acquisition_mode_list": json.dumps(acquisition_mode_list),
+        "HH": hh,
+        "HV": hv,
+        "VH": vh,
+        "VV": vv,
+        "geometry": geometry,
+    }
+
+    new_gdf = gpd.GeoDataFrame(
+        [record],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+
+    key_columns = ["cycle", "track", "frame", "frequency"]
+
+    file_exists = os.path.exists(filename)
+    layer_exists = (
+        file_exists and layer in fiona.listlayers(filename)
+    )
+
+    if layer_exists:
+        gdf = gpd.read_file(filename, layer=layer)
+
+        if gdf.crs is None:
+            raise ValueError(
+                f"The existing layer '{layer}' has no CRS."
+            )
+
+        gdf = gdf.to_crs("EPSG:4326")
+
+        mask = pd.Series(True, index=gdf.index)
+
+        for column in key_columns:
+            mask &= gdf[column] == record[column]
+
+        gdf = gdf.loc[~mask].copy()
+
+        gdf = gpd.GeoDataFrame(
+            pd.concat([gdf, new_gdf], ignore_index=True),
+            geometry="geometry",
+            crs="EPSG:4326",
+        )
+    else:
+        gdf = new_gdf
+
+    if layer_exists:
+        fiona.remove(filename, driver="GPKG", layer=layer)
+
+    gdf.to_file(
+        filename,
+        layer=layer,
+        driver="GPKG",
+        mode="a" if file_exists else "w",
+        index=False,
+    )
+
+    return gdf
+
+
 class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
 
     def __init__(self, parser, argv=None):
@@ -361,6 +498,56 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
 
                 print('## processing frequency:', freq)
 
+                wkt_polygon = nisar_product_obj.identification.boundingPolygon
+
+                dict_filename = self.parse_nisar_product_filename(
+                    self.input_file)
+
+                cycle = None
+                track = None
+                frame = None
+                vegetation_fraction = None
+
+                if 'cycle_number' in dict_filename.keys():
+                    cycle = dict_filename['cycle_number']
+                if 'track_number' in dict_filename.keys():
+                    track = dict_filename['track_number']
+
+                if 'frame_number' in dict_filename.keys():
+                    frame = dict_filename['frame_number']
+
+                if self.worldcover:
+
+                    polygon = wkt.loads(wkt_polygon)
+
+                    mean_latitude = np.mean([coord[1] for coord in
+                                             polygon.exterior.coords])
+
+                    print(f"Mean latitude: {mean_latitude}")
+                    if mean_latitude <= -60 or mean_latitude >= 84:
+                        print('ERROR worldcover does not cover the give area')
+                        return
+
+                if (self.flag_only_eap_stats and self.flag_skip_existent_eap_stats and
+                        os.path.isfile(self.output_eap_stats_file)):
+                    layer = 'vegetation'
+                    gdf = gpd.read_file(
+                        self.output_eap_stats_file, layer=layer)
+
+                    mask = (
+                        (gdf["cycle"] == cycle)
+                        & (gdf["track"] == track)
+                        & (gdf["frame"] == frame)
+                        & (gdf["frequency"] == freq)
+                    )
+
+                    if mask.any():
+
+                        print(
+                            '## Found a stats record matching the current EAP'
+                            ' analysis. Skipping.')
+                        continue
+
                 flag_flat_pol = (
                     not self.flag_read_existing_profiles or
                     self.flag_generate_elevation_profiles or
@@ -409,10 +596,16 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                 gamma_to_beta_factor = None
                 mask_non_forest = None
 
-                if (flag_flat_pol and freq == 'A' and
-                    self.radiometric_terrain_convention_a == 'gamma0') or \
-                        (freq == 'B' and
-                         self.radiometric_terrain_convention_b == 'gamma0'):
+                if self.pol_list is not None:
+                    pol_list = self.pol_list
+                else:
+                    pol_list = freq_pol_dict[freq]
+
+                if (flag_flat_pol and not self.flag_only_eap_stats and
+                    ((freq == 'A' and
+                      self.radiometric_terrain_convention_a == 'gamma0') or
+                     (freq == 'B' and
+                      self.radiometric_terrain_convention_b == 'gamma0'))):
                     print('computing gamma0 using ISCE3 RTC module for'
                           f' frequency {freq}')
 
@@ -516,6 +709,50 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                         mask_non_forest = plant.read_image(
                             projected_worldcover_file).image != 10
 
+                        if self.minimum_vegetation_fraction is not None:
+                            non_forest_pixels = np.count_nonzero(
+                                mask_non_forest)
+                            all_pixels = mask_non_forest.size
+
+                            vegetation_fraction = (
+                                (all_pixels - non_forest_pixels) / all_pixels
+                            )
+
+                            print(
+                                f'Number of non-forest pixels: {non_forest_pixels}')
+                            print(f'Total number of pixels: {all_pixels}')
+                            print(
+                                f'Vegetation fraction: {vegetation_fraction}')
+
+                            if (vegetation_fraction <
+                                    self.minimum_vegetation_fraction):
+                                print(
+                                    'WARNING: Vegetation fraction'
+                                    f' {vegetation_fraction:.3f} '
+                                    f'is below the minimum threshold '
+                                    f'{self.minimum_vegetation_fraction:.3f}')
+
+                                acquisition_mode_list = self._get_acquisition_mode_list(
+                                    nisar_product_obj)
+
+                                max_rfi_likelihood = self.get_max_rfi_likelihood(
+                                    freq, pol_list)
+
+                                if self.output_eap_stats_file:
+                                    update_vegetation_gpkg(
+                                        cycle,
+                                        track,
+                                        frame,
+                                        freq,
+                                        max_rfi_likelihood,
+                                        vegetation_fraction,
+                                        acquisition_mode_list,
+                                        wkt_polygon,
+                                        self.output_eap_stats_file,
+                                        layer="vegetation"
+                                    )
+                                return
+
                     if ((freq == 'A' and
                          self.radiometric_terrain_convention_a ==
                          'gamma0-psi') or
@@ -533,11 +770,6 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                         del cos_psi
                         del cos_local_inc
 
-                if self.pol_list is not None:
-                    pol_list = self.pol_list
-                else:
-                    pol_list = freq_pol_dict[freq]
-
                 radar_grid = plant_product_obj.get_radar_grid(frequency=freq)
                 radar_grid_ml = plant_product_obj.get_radar_grid_ml(
                     frequency=freq)
@@ -552,62 +784,150 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                 display_profiles_dict = {}
                 display_elevation_profiles_dict = {}
                 self.input_raster = None
-                for pol_count, pol in enumerate(pol_list):
+                if not self.flag_only_eap_stats:
+                    for pol_count, pol in enumerate(pol_list):
 
-                    if flag_flat_pol:
-                        self.flat_pol(profiles_directory,
-                                      images_directory,
-                                      nisar_product_obj, plant_product_obj,
-                                      product_path, rslc_obj,
-                                      nlooks_y, nlooks_x,
-                                      freq, abs_cal_factor,
-                                      gamma_to_beta_factor,
-                                      mask_non_forest,
-                                      pol_count, pol,
-                                      radar_grid, radar_grid_ml,
-                                      display_profiles_dict,
-                                      display_elevation_profiles_dict,
+                        if flag_flat_pol:
+                            self.flat_pol(profiles_directory,
+                                          images_directory,
+                                          nisar_product_obj, plant_product_obj,
+                                          product_path, rslc_obj,
+                                          nlooks_y, nlooks_x,
+                                          freq, abs_cal_factor,
+                                          gamma_to_beta_factor,
+                                          mask_non_forest,
+                                          pol_count, pol,
+                                          radar_grid, radar_grid_ml,
+                                          display_profiles_dict,
+                                          display_elevation_profiles_dict,
 
-                                      suffix_ml)
+                                          suffix_ml)
 
-                    if not self.output_file:
+                        if not self.output_file:
+
+                            gc.collect()
+                            continue
+
+                        self.flatten_and_save_h5_pol(profiles_directory,
+                                                     images_directory,
+                                                     product_path,
+                                                     rslc_obj,
+                                                     freq,
+
+                                                     pol,
+                                                     radar_grid)
 
                         gc.collect()
-                        continue
 
-                    self.flatten_and_save_h5_pol(profiles_directory,
-                                                 images_directory,
-                                                 product_path,
-                                                 rslc_obj,
-                                                 freq,
+                    self.plot_results(
+                        data_exception_str,
+                        freq,
+                        suffix_ml,
+                        profiles_directory,
+                        images_directory,
+                        pol_list,
+                        display_profiles_dict,
+                        display_elevation_profiles_dict,
+                        radiometric_terrain_convention.title())
 
-                                                 pol,
-                                                 radar_grid)
+                if self.output_eap_stats_file and not self.worldcover:
+                    self.print(
+                        "ERROR WorldCover required to save EAP stats file")
+                    return
+                elif self.output_eap_stats_file:
+                    print(
+                        f'## Saving EAP stats file: {
+                            self.output_eap_stats_file}')
 
-                    gc.collect()
+                    print(f'cycle: {cycle}')
+                    print(f'track: {track}')
+                    print(f'frame: {frame}')
 
-                if freq == 'A':
-                    backscatter_str = \
-                        (f'{radiometric_terrain_convention.title()}'
-                         ' Backscatter')
-                else:
-                    backscatter_str = \
-                        (f'{radiometric_terrain_convention.title()}'
-                         ' Backscatter')
+                    if vegetation_fraction is None:
+                        non_forest_pixels = np.count_nonzero(mask_non_forest)
+                        all_pixels = mask_non_forest.size
 
-                self.plot_results(
-                    data_exception_str, freq, suffix_ml, profiles_directory,
-                    images_directory, pol_list, display_profiles_dict,
-                    display_elevation_profiles_dict, backscatter_str)
+                        vegetation_fraction = (
+                            (all_pixels - non_forest_pixels) / all_pixels
+                        )
+
+                        print(
+                            f'Number of non-forest pixels: {non_forest_pixels}')
+                        print(f'Total number of pixels: {all_pixels}')
+                        print(f'Vegetation fraction: {vegetation_fraction}')
+
+                    print(f'WKT polygon: {wkt_polygon}')
+
+                    average_backscatter = {}
+                    for pol in pol_list:
+                        if pol.lower() not in average_backscatter.keys():
+                            continue
+                        average_backscatter[pol.lower()] = \
+                            display_profiles_dict[pol + '_offset']
+
+                    print(f'average backscatter: {average_backscatter}')
+
+                    acquisition_mode_list = self._get_acquisition_mode_list(
+                        nisar_product_obj)
+
+                    max_rfi_likelihood = self.get_max_rfi_likelihood(
+                        freq, pol_list)
+
+                    print(f'maximum RFI likelihood: {max_rfi_likelihood}')
+
+                    update_vegetation_gpkg(
+                        cycle,
+                        track,
+                        frame,
+                        freq,
+                        max_rfi_likelihood,
+                        vegetation_fraction,
+                        acquisition_mode_list,
+                        wkt_polygon,
+                        self.output_eap_stats_file,
+                        layer="vegetation",
+                        **average_backscatter,
+                    )
+
+                    if os.path.isfile(self.output_eap_stats_file):
+                        print(f'# file saved: {self.output_eap_stats_file}')
+                        plant.append_output_file(self.output_eap_stats_file)
 
         if self.output_file:
             print(f'# file saved: {self.output_file}')
             plant.append_output_file(self.output_file)
 
+    def get_max_rfi_likelihood(self, freq, pol_list):
+        with plant.h5py_file_wrapper(self.input_file, 'r', swmr=True) as h5_obj:
+            rfi_likelihood_list = []
+            for pol in pol_list:
+                rfi_likelihood_path = \
+                    ('/science/LSAR/RSLC/metadata/'
+                     'calibrationInformation/'
+                     f'frequency{freq}/{pol}/rfiLikelihood')
+                print(f'rfi_likelihood_path ({pol}): {rfi_likelihood_path}')
+                rfi_likelihood_dataset = h5_obj[rfi_likelihood_path]
+                rfi_likelihood = float(rfi_likelihood_dataset[()])
+                print(f'rfi_likelihood ({pol}): {rfi_likelihood}')
+                rfi_likelihood_list.append(rfi_likelihood)
+            max_rfi_likelihood = max(rfi_likelihood_list)
+        return max_rfi_likelihood
+
+    def _get_acquisition_mode_list(self, nisar_product_obj):
+        with plant.h5py_file_wrapper(self.input_file, 'r', swmr=True) as h5_obj:
+            acquisition_mode_list = plant_isce3.get_acquisition_mode_list(
+                h5_obj, nisar_product_obj)
+        return acquisition_mode_list
+
     def plot_results(self, data_exception_str, freq, suffix_ml,
                      profiles_directory, images_directory, pol_list,
                      display_profiles_dict, display_elevation_profiles_dict,
-                     backscatter_str):
+                     radiometric_terrain_convention):
+
+        plot_kwargs = {
+            'grid_distance_major_y': 1,
+            'grid_distance_minor_y': 0.25
+        }
 
         if self.flag_save_multilooked_backscatter_png:
             min_list = []
@@ -644,15 +964,15 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
 
             title = f'Beta0 Backscatter - Freq. {freq} ({data_exception_str})'
 
-            plant.display(
-                *pol_file_list,
-                output_file=multilooked_backscatter_png_file,
-                force=True,
-                title=title,
-                fontsize=9,
-                no_show=True,
-                crop_plots=True,
-                **image_kwargs)
+            plant.display(*pol_file_list,
+                          output_file=multilooked_backscatter_png_file,
+                          force=True,
+                          title=title,
+                          fontsize=9,
+                          no_show=True,
+                          crop_plots=True,
+
+                          **image_kwargs)
 
         if self.flag_save_processed_backscatter_png:
             min_list = []
@@ -697,16 +1017,17 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
             if len(max_list) != 0:
                 image_kwargs['max'] = ', '.join(map(str, max_list))
 
-            title = f'{backscatter_str} - Freq. {freq} ({data_exception_str})'
-            plant.display(
-                *pol_file_list,
-                output_file=processed_backscatter_png_file,
-                force=True,
-                title=title,
-                fontsize=9,
-                no_show=True,
-                crop_plots=True,
-                **image_kwargs)
+            title = (f'{radiometric_terrain_convention} backscatter - Freq.'
+                     f' {freq} ({data_exception_str})')
+            plant.display(*pol_file_list,
+                          output_file=processed_backscatter_png_file,
+                          force=True,
+                          title=title,
+                          fontsize=9,
+                          no_show=True,
+                          crop_plots=True,
+
+                          **image_kwargs)
 
             processed_backscatter_hist_png_file = os.path.join(
                 profiles_directory,
@@ -728,20 +1049,22 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                     continue
                 pol_file_list.append(pol_file)
 
-            title = f'{backscatter_str} - Freq. {freq} ({data_exception_str})'
-            plant.display(
-                *pol_file_list,
-                output_file=processed_backscatter_hist_png_file,
-                hist=True,
-                db=True,
-                force=True,
-                name=','.join(pol_list_sorted),
+            title = (f'{radiometric_terrain_convention} backscatter - Freq.'
+                     f' {freq} ({data_exception_str})')
+            plant.display(*pol_file_list,
+                          output_file=processed_backscatter_hist_png_file,
+                          hist=True,
+                          db=True,
+                          force=True,
+                          name=','.join(pol_list_sorted),
 
-                title=title,
-                fontsize=9,
-                legend_fontsize=12,
-                crop_plots=True,
-                no_show=True)
+                          title=title,
+                          fontsize=11,
+                          legend=True,
+                          legend_fontsize=11,
+                          crop_plots=True,
+
+                          no_show=True)
 
         if self.flag_generate_elevation_profiles:
             print('saving elevation profiles plot for frequency', freq)
@@ -764,8 +1087,9 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                 f'{self.prefix}elevation_profile'
                 f'_{freq}{suffix_ml}.png')
 
-            title = (f'{backscatter_str} Elevation Profiles'
-                     f' - Freq. {freq} ({data_exception_str})')
+            title = (f'{radiometric_terrain_convention} backscatter'
+                     f' Elevation Profiles - Freq. {freq}'
+                     f' ({data_exception_str})')
 
             if self.profile_max_in_db is not None:
                 vmax = self.profile_max_in_db
@@ -777,20 +1101,24 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
             else:
                 vmin = -2.5
 
+            ylabel = (radiometric_terrain_convention +
+                      ' relative backscatter [dB]')
             plant.display(*display_args,
                           output_file=plot_file,
                           force=True,
                           marker='',
                           name=','.join(name_list),
                           title=title,
-                          fontsize=9,
-                          legend_fontsize=12,
+                          fontsize=11,
+                          legend=True,
+                          legend_fontsize=11,
                           linewidth=2,
 
                           xlabel='Elevation [deg]',
-                          ylabel=backscatter_str + ' [dB]',
+                          ylabel=ylabel,
 
                           hline="-0.25,0.25",
+
                           stats_linestyle='dashed',
                           stats_linewidth=1,
                           stats_linecolor='red',
@@ -798,7 +1126,9 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                           ymin=vmin,
                           first_input_as_x=True,
                           crop_plots=True,
-                          no_show=True)
+                          no_show=True,
+
+                          **plot_kwargs)
 
         if self.flag_save_plot:
             print('saving profiles plot for frequency', freq)
@@ -813,7 +1143,9 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
 
                 offset = display_profiles_dict[pol + '_offset']
                 name_list.append(f"{pol} (median: {offset:.2f} dB)")
-                error_fill_args.append(display_profiles_dict[pol + '_stddev'])
+                if self.flag_add_error_fill:
+                    error_fill_args.append(
+                        display_profiles_dict[pol + '_stddev'])
 
             if self.profile_max_in_db is not None:
                 vmax = self.profile_max_in_db
@@ -830,33 +1162,41 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                 f'{self.prefix}slantrange_profile_{freq}{suffix_ml}'
                 '.png')
 
-            title = (f'{backscatter_str} Range Profiles -'
-                     f' Freq. {freq} ({data_exception_str})')
+            title = (f'{radiometric_terrain_convention} Backscatter Range'
+                     f' Profiles - Freq. {freq} ({data_exception_str})')
 
-            error_fill_image = plant.util(*error_fill_args)
-
+            display_profile_kwargs = {}
+            if self.flag_add_error_fill:
+                display_profile_kwargs['error_fill'] = \
+                    plant.util(*error_fill_args)
+            ylabel = (radiometric_terrain_convention +
+                      ' relative backscatter [dB]')
             plant.display(*display_args,
                           output_file=plot_file,
                           force=True,
                           name=','.join(name_list),
                           title=title,
                           marker='',
-                          fontsize=9,
-                          legend_fontsize=12,
+                          fontsize=11,
+                          legend=True,
+                          legend_fontsize=11,
                           linewidth=2,
-                          error_fill=error_fill_image,
 
                           xlabel='Slant range [km]',
                           hline="-0.25,0.25",
+
                           stats_linestyle='dashed',
                           stats_linewidth=1,
                           stats_linecolor='red',
-                          ylabel=backscatter_str + ' [dB]',
+                          ylabel=ylabel,
                           ymax=vmax,
                           ymin=vmin,
                           first_input_as_x=True,
                           crop_plots=True,
-                          no_show=True)
+                          no_show=True,
+
+                          **display_profile_kwargs,
+                          **plot_kwargs)
 
     def flat_pol(self, profiles_directory, images_directory,
                  nisar_product_obj,
@@ -914,7 +1254,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
         width = backscatter_image.shape[1]
 
         if self.profile_filter_size is None:
-            profile_filter_size = width // 100
+            profile_filter_size = max(width // 500, 1)
         else:
             profile_filter_size = self.profile_filter_size
 
@@ -1134,10 +1474,29 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
         slant_ranges_ml = radar_grid_ml.slant_ranges
         sensing_times_ml = radar_grid_ml.sensing_times
 
-        profile_x_max = np.nanpercentile(
-            backscatter_image, self.percentile, axis=0)
+        mask_out_ind = None
+        if self.minimum_azimuth_valid_percentage is not None:
+
+            mask_out_ind = \
+                (np.mean(~np.isnan(backscatter_image), axis=0) <
+                 (float(self.minimum_azimuth_valid_percentage) / 100.0))
+
+            mask_out_ind = binary_dilation(mask_out_ind, structure=np.ones(3))
+
+            print('masking out azimuth lines with valid percentage below'
+                  f' {self.minimum_azimuth_valid_percentage}%')
+            print(f'number of valid azimuth lines:'
+                  f' {np.count_nonzero(~mask_out_ind)} '
+                  f'out of {mask_out_ind.size}')
+
+        profile_x_max = np.nanpercentile(backscatter_image, self.percentile,
+                                         axis=0)
+        if mask_out_ind is not None:
+            profile_x_max[mask_out_ind] = np.nan
 
         profile_x_stddev = np.nanstd(plant.get_db(backscatter_image), axis=0)
+        if mask_out_ind is not None:
+            profile_x_stddev[mask_out_ind] = np.nan
 
         if self.flag_ignore_noise:
             print('*** ignoring noise in profile calculation')
@@ -1155,7 +1514,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
             water_image[(water_mask != 80) &
                         (water_mask != 0)] = np.nan
 
-            output_water_image = os.path.join(images_directory,
+            output_water_image = os.path.join(self.images_directory,
                                               f'water_image_{freq}_{pol}.tif')
             plant.save_image(water_image,
                              output_file=output_water_image,
@@ -1186,19 +1545,28 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                     (abs_cal_factor[pol_count] *
                      noise_product.power_linear), axis=0)
 
+        if mask_out_ind is not None:
+            profile_x_min[mask_out_ind] = np.nan
+
         if profile_filter_size > 0:
             print('applying profile filter of size',
                   profile_filter_size)
 
+            shape = profile_x_max.shape
             profile_x_min = plant.filter_data(
                 profile_x_min,
-                mean=[1, profile_filter_size])
+                mean=[1, profile_filter_size]).reshape(shape)
             profile_x_max = plant.filter_data(
                 profile_x_max,
-                mean=[1, profile_filter_size])
+                mean=[1, profile_filter_size]).reshape(shape)
             profile_x_stddev = plant.filter_data(
                 profile_x_stddev,
-                mean=[1, profile_filter_size])
+                mean=[1, profile_filter_size]).reshape(shape)
+
+            if mask_out_ind is not None:
+                profile_x_min[mask_out_ind] = np.nan
+                profile_x_max[mask_out_ind] = np.nan
+                profile_x_stddev[mask_out_ind] = np.nan
 
         print('*** profile_x_min.shape:', profile_x_min.shape)
         print('*** profile_x_max.shape:', profile_x_max.shape)
@@ -1307,33 +1675,24 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
         print('*** profile_x_min_orig.shape before:',
               profile_x_min_orig.shape)
 
-        valid_ind = np.logical_and(plant.isvalid(profile_x_min_orig),
-                                   plant.isvalid(divisor_orig))
+        profile_x_min_orig = profile_x_min_orig
+        profile_x_stddev_orig = profile_x_stddev_orig
+        divisor_orig = divisor_orig
+        slant_range_orig = slant_range_orig
 
-        profile_x_min_orig = profile_x_min_orig[valid_ind]
-        profile_x_stddev_orig = profile_x_stddev_orig[valid_ind]
-        divisor_orig = divisor_orig[valid_ind]
-        slant_range_orig = slant_range_orig[valid_ind]
+        f = interp1d(slant_range_orig, divisor_orig, kind='cubic')
 
-        f = interp1d(slant_range_orig, divisor_orig, kind='cubic',
-                     fill_value='extrapolate')
         divisor = f(slant_ranges)
         divisor[divisor <= 0] = np.nan
 
-        f = interp1d(slant_range_orig, profile_x_min_orig,
-                     kind='cubic',
-                     fill_value='extrapolate')
+        f = interp1d(slant_range_orig, profile_x_min_orig, kind='cubic')
 
         profile_x_min = f(slant_ranges)
         profile_x_min[profile_x_min <= 0] = 0
 
-        f = interp1d(slant_range_orig, profile_x_stddev_orig,
-                     kind='cubic',
-                     fill_value='extrapolate')
+        f = interp1d(slant_range_orig, profile_x_stddev_orig, kind='cubic')
 
         profile_x_stddev = f(slant_ranges)
-
-        divisor_mean = np.nanmean(divisor)
 
         return profile_x_min, divisor, profile_x_stddev
 

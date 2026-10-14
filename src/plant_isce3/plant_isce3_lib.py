@@ -4,7 +4,8 @@ import time
 import datetime
 import json
 import gc
-import configparser
+
+import yaml
 import geopandas as gpd
 
 import plant_isce3
@@ -2650,6 +2651,46 @@ class PlantIsce3Script(plant.PlantScript):
         return elevation_profile, image_profile, image_median
 
 
+def get_acquisition_mode_list(h5_obj, nisar_product_obj):
+
+    metadata_path = nisar_product_obj.MetadataPath
+
+    rslc_runconfig_path = None
+    if nisar_product_obj.productType == 'RSLC':
+        rslc_runconfig_path = (f'{metadata_path}/processingInformation/'
+                               'parameters/runConfigurationContents')
+    elif nisar_product_obj.productType in ['GCOV', 'GSLC']:
+        rslc_runconfig_path = \
+            (f'{metadata_path}/sourceData/processingInformation/'
+                'parameters/runConfigurationContents')
+    if not rslc_runconfig_path:
+        print('WARNING could not find RSLC run configuration contents for'
+              ' give product')
+        return
+    rslc_runconfig_str = h5_obj[rslc_runconfig_path][()]
+    if isinstance(rslc_runconfig_str, (bytes, np.bytes_)):
+        rslc_runconfig_str = rslc_runconfig_str.decode()
+    rslc_runconfig_contents = yaml.safe_load(rslc_runconfig_str)
+    input_l0bs = rslc_runconfig_contents.get(
+        'input_file_group', {}).get('input_file_path', [])
+    if isinstance(input_l0bs, (bytes, np.bytes_)):
+        input_l0bs = input_l0bs.decode()
+    if isinstance(input_l0bs, str):
+        input_l0bs = [input_l0bs]
+    if len(input_l0bs) == 1:
+        print('## input L0B:')
+    elif len(input_l0bs) > 1:
+        print('## input L0Bs:')
+    radar_configuration_mode_list = []
+    for input_l0b in input_l0bs:
+        input_l0b_basename = os.path.basename(input_l0b)
+        print(f'    {input_l0b_basename}')
+        ret_dict = parse_nisar_product_filename(input_l0b_basename)
+        radar_configuration_mode = ret_dict['radar_configuration_mode']
+        radar_configuration_mode_list.append(radar_configuration_mode)
+    return radar_configuration_mode
+
+
 def parse_nisar_product_filename(filename_with_extension):
     filename = os.path.basename(filename_with_extension).split('.')[0]
     splitted_filename = filename.split('_')
@@ -2739,10 +2780,20 @@ def parse_nisar_product_filename(filename_with_extension):
     ret_dict['start_date_time'] = start_date_time
     end_date_time = splitted_filename[offset + 1]
     ret_dict['end_date_time'] = end_date_time
+    if len(splitted_filename) <= offset + 2:
+        return ret_dict
+
     crid = splitted_filename[offset + 2]
     ret_dict['crid'] = crid
+
+    if len(splitted_filename) <= offset + 3:
+        return ret_dict
+
     accuracy = splitted_filename[offset + 3]
     ret_dict['accuracy'] = accuracy
+
+    if len(splitted_filename) <= offset + 4:
+        return ret_dict
 
     if product_type != 'RRSD':
         coverage_char = splitted_filename[offset + 4]

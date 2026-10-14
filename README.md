@@ -17,7 +17,7 @@ Licensing and legal notices are provided in LICENSE.txt.
 **Requirements:**
 - Python >= 3.9
 - ISCE3 >= 0.25.0
-- PLAnT >= 0.8.4
+- PLAnT >= 0.8.6
 - Dependencies listed in `requirements.txt`
 
 ## 1. Install from conda-forge (Recommended)
