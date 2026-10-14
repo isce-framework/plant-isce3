@@ -4,6 +4,7 @@ import plant
 import plant_isce3
 import numpy as np
 from osgeo import osr
+
 from plant_isce3.readers import open_product
 
 IDENTIFICATION_DICT = {
@@ -93,7 +94,9 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                 if (sensor_name == 'Sentinel-1'):
                     self._print_sentinel1_product_info(plant_product_obj)
                 elif (sensor_name == 'NISAR'):
-                    self._print_nisar_product_info()
+                    with plant.h5py_file_wrapper(self.input_file,
+                                                 'r', swmr=True) as h5_obj:
+                        self._print_nisar_product_info(h5_obj)
                 else:
                     print(f'ERROR unsupported product "{sensor_name}"')
                     return
@@ -214,7 +217,7 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
                   f' ({lut_xf} - {xf}) / {dx} ='
                   f' {lut_xf_index}')
 
-    def _print_nisar_product_info(self):
+    def _print_nisar_product_info(self, h5_obj):
         import shapely.wkt
         nisar_product_obj = open_product(self.input_file)
 
@@ -228,8 +231,6 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
         with plant.PlantIndent():
             for freq, pol_list in freq_pol_dict.items():
                 print(f'{freq}: {pol_list}')
-
-        h5_obj = plant.h5py_file_wrapper(self.input_file, 'r', swmr=True)
 
         metadata_path = nisar_product_obj.MetadataPath
 
@@ -247,6 +248,12 @@ class PlantIsce3Info(plant_isce3.PlantIsce3Script):
             if not isinstance(is_full_covariance, str):
                 is_full_covariance = is_full_covariance.decode()
             print('## full covariance (True/False):', is_full_covariance)
+
+        radar_configuration_mode_list = \
+            plant_isce3.get_acquisition_mode_list(h5_obj, nisar_product_obj)
+
+        for radar_configuration_mode in radar_configuration_mode_list:
+            print(f'        L0B acquisition mode: {radar_configuration_mode}')
 
         if nisar_product_obj.productType == 'STATIC':
             swaths_base_path = f'{metadata_path}/radarGridParameters'

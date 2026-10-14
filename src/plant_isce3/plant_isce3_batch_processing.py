@@ -214,6 +214,23 @@ def get_parser():
                         type=str,
                         help='WorldCover land cover map for EAP analysis')
 
+    parser.add_argument('--only-eap-stats',
+                        action='store_true',
+                        dest='flag_only_eap_stats',
+                        help=('Process EAP statistics only (skip EAP analysis'
+                              ' and plot generation)'))
+
+    parser.add_argument('--skip-existent-eap-stats',
+                        action='store_true',
+                        dest='flag_skip_existent_eap_stats',
+                        help=('Skip calculating existent EAP stats'))
+
+    parser.add_argument('--out-eap-stats-file',
+                        '--output-eap-stats-file',
+                        dest='output_eap_stats_file',
+                        type=str,
+                        help='Output GeoPandas EAP stats file')
+
     parser.add_argument('--step-2-eap-analysis',
                         action='store_true',
                         dest='step_2_eap_analysis',
@@ -2172,9 +2189,12 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                         save_multilooked_backscatter_png=True,
                         save_processed_backscatter_png=True,
                         save_profile_plot_png=True,
+                        flag_only_eap_stats=self.flag_only_eap_stats,
+                        flag_skip_existent_eap_stats=self.flag_skip_existent_eap_stats,
                         create_plots_with_predefined_thresholds=self.flag_create_plots_with_predefined_thresholds,
                         nlooks_x=nlooks_x,
                         nlooks_y=nlooks_y,
+                        output_eap_stats_file=self.output_eap_stats_file,
                         **eap_kwargs)
                     flag_success_eap_analysis = True
                 except Exception:
