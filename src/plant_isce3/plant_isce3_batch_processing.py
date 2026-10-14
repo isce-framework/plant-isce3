@@ -20,6 +20,9 @@ import isce3
 
 from plant_isce3.readers.product import open_product
 
+MAX_OFF_DIAGONAL_ANALYSIS_ERROR_COUNT = 1
+MAX_EAP_ERROR_COUNT = 1
+
 res_deg_dict = {'A': 1.0 / 3600,
                 'B': 1.0 / 3600}
 
@@ -223,7 +226,13 @@ def get_parser():
     parser.add_argument('--skip-existent-eap-stats',
                         action='store_true',
                         dest='flag_skip_existent_eap_stats',
-                        help=('Skip calculating existent EAP stats'))
+                        help='Skip calculating existent EAP stats')
+
+    parser.add_argument('--minimum-vegetation-fraction',
+                        dest='minimum_vegetation_fraction',
+
+                        type=float,
+                        help='Minimum vegetation fraction.')
 
     parser.add_argument('--out-eap-stats-file',
                         '--output-eap-stats-file',
@@ -2127,7 +2136,9 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
 
             flag_success_off_diag_analysis = False
             error_count = 0
-            while not flag_success_off_diag_analysis and error_count < 3:
+
+            while (not flag_success_off_diag_analysis and
+                   error_count < MAX_OFF_DIAGONAL_ANALYSIS_ERROR_COUNT):
                 try:
                     plant_isce3.off_diagonal_analysis(
                         downloaded_file,
@@ -2154,12 +2165,15 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                     print('==================================================')
             if not flag_success_off_diag_analysis:
                 print('WARNING the off-diagonal analysis did not complete'
-                      ' successfully after 3 attempts. Skipping.')
+                      ' successfully after'
+                      f' {MAX_OFF_DIAGONAL_ANALYSIS_ERROR_COUNT}'
+                      ' attempt(s). Skipping.')
 
         if self.step_2_eap_analysis:
             flag_success_eap_analysis = False
             error_count = 0
-            while not flag_success_eap_analysis and error_count < 3:
+            while (not flag_success_eap_analysis and
+                   error_count < MAX_EAP_ERROR_COUNT):
                 try:
                     eap_kwargs = {}
                     if self.worldcover:
@@ -2172,6 +2186,9 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                             self.profile_min_in_db
                     output_dir_eap = os.path.join(
                         '2_eap_analysis', basename + suffix_ml)
+                    if self.minimum_vegetation_fraction is not None:
+                        eap_kwargs['minimum_vegetation_fraction'] = \
+                            self.minimum_vegetation_fraction
                     plant_isce3.rslc_eap_analysis(
                         downloaded_file,
                         frequency=frequency,
@@ -2191,6 +2208,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                         save_profile_plot_png=True,
                         flag_only_eap_stats=self.flag_only_eap_stats,
                         flag_skip_existent_eap_stats=self.flag_skip_existent_eap_stats,
+
                         create_plots_with_predefined_thresholds=self.flag_create_plots_with_predefined_thresholds,
                         nlooks_x=nlooks_x,
                         nlooks_y=nlooks_y,
@@ -2210,7 +2228,7 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                     print('==================================================')
             if not flag_success_eap_analysis:
                 print('WARNING The EAP analysis did not complete successfully'
-                      ' after 3 attempts. Skipping.')
+                      f' after {MAX_EAP_ERROR_COUNT} attempt(s). Skipping.')
 
         masked_data_kwargs = {}
 

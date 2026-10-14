@@ -172,7 +172,13 @@ def get_parser():
     parser.add_argument('--skip-existent-eap-stats',
                         action='store_true',
                         dest='flag_skip_existent_eap_stats',
-                        help=('Skip calculating existent EAP stats'))
+                        help='Skip calculating existent EAP stats')
+
+    parser.add_argument('--minimum-vegetation-fraction',
+                        dest='minimum_vegetation_fraction',
+
+                        type=float,
+                        help='Minimum vegetation fraction.')
 
     parser.add_argument('--out-eap-stats-file',
                         '--output-eap-stats-file',
@@ -500,6 +506,8 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                 cycle = None
                 track = None
                 frame = None
+                vegetation_fraction = None
+
                 if 'cycle_number' in dict_filename.keys():
                     cycle = dict_filename['cycle_number']
                 if 'track_number' in dict_filename.keys():
@@ -587,6 +595,11 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
 
                 gamma_to_beta_factor = None
                 mask_non_forest = None
+
+                if self.pol_list is not None:
+                    pol_list = self.pol_list
+                else:
+                    pol_list = freq_pol_dict[freq]
 
                 if (flag_flat_pol and not self.flag_only_eap_stats and
                     ((freq == 'A' and
@@ -696,6 +709,50 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                         mask_non_forest = plant.read_image(
                             projected_worldcover_file).image != 10
 
+                        if self.minimum_vegetation_fraction is not None:
+                            non_forest_pixels = np.count_nonzero(
+                                mask_non_forest)
+                            all_pixels = mask_non_forest.size
+
+                            vegetation_fraction = (
+                                (all_pixels - non_forest_pixels) / all_pixels
+                            )
+
+                            print(
+                                f'Number of non-forest pixels: {non_forest_pixels}')
+                            print(f'Total number of pixels: {all_pixels}')
+                            print(
+                                f'Vegetation fraction: {vegetation_fraction}')
+
+                            if (vegetation_fraction <
+                                    self.minimum_vegetation_fraction):
+                                print(
+                                    'WARNING: Vegetation fraction'
+                                    f' {vegetation_fraction:.3f} '
+                                    f'is below the minimum threshold '
+                                    f'{self.minimum_vegetation_fraction:.3f}')
+
+                                acquisition_mode_list = self._get_acquisition_mode_list(
+                                    nisar_product_obj)
+
+                                max_rfi_likelihood = self.get_max_rfi_likelihood(
+                                    freq, pol_list)
+
+                                if self.output_eap_stats_file:
+                                    update_vegetation_gpkg(
+                                        cycle,
+                                        track,
+                                        frame,
+                                        freq,
+                                        max_rfi_likelihood,
+                                        vegetation_fraction,
+                                        acquisition_mode_list,
+                                        wkt_polygon,
+                                        self.output_eap_stats_file,
+                                        layer="vegetation"
+                                    )
+                                return
+
                     if ((freq == 'A' and
                          self.radiometric_terrain_convention_a ==
                          'gamma0-psi') or
@@ -712,11 +769,6 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                         gamma_to_beta_factor = cos_local_inc / cos_psi
                         del cos_psi
                         del cos_local_inc
-
-                if self.pol_list is not None:
-                    pol_list = self.pol_list
-                else:
-                    pol_list = freq_pol_dict[freq]
 
                 radar_grid = plant_product_obj.get_radar_grid(frequency=freq)
                 radar_grid_ml = plant_product_obj.get_radar_grid_ml(
@@ -776,7 +828,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                         pol_list,
                         display_profiles_dict,
                         display_elevation_profiles_dict,
-                        radiometric_terrain_convention.upper())
+                        radiometric_terrain_convention.title())
 
                 if self.output_eap_stats_file and not self.worldcover:
                     self.print(
@@ -791,13 +843,18 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                     print(f'track: {track}')
                     print(f'frame: {frame}')
 
-                    non_forest_pixels = np.nansum(mask_non_forest)
-                    print(f'number of non-forest pixels: {non_forest_pixels}')
-                    all_pixels = mask_non_forest.size
-                    print(f'total number of pixels: {all_pixels}')
-                    vegetation_fraction = float(
-                        all_pixels - non_forest_pixels) / all_pixels
-                    print(f'vegetation fraction: {vegetation_fraction}')
+                    if vegetation_fraction is None:
+                        non_forest_pixels = np.count_nonzero(mask_non_forest)
+                        all_pixels = mask_non_forest.size
+
+                        vegetation_fraction = (
+                            (all_pixels - non_forest_pixels) / all_pixels
+                        )
+
+                        print(
+                            f'Number of non-forest pixels: {non_forest_pixels}')
+                        print(f'Total number of pixels: {all_pixels}')
+                        print(f'Vegetation fraction: {vegetation_fraction}')
 
                     print(f'WKT polygon: {wkt_polygon}')
 
@@ -810,23 +867,11 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
 
                     print(f'average backscatter: {average_backscatter}')
 
-                    with plant.h5py_file_wrapper(self.input_file, 'r') as h5_obj:
-                        acquisition_mode_list = plant_isce3.get_acquisition_mode_list(
-                            h5_obj, nisar_product_obj)
+                    acquisition_mode_list = self._get_acquisition_mode_list(
+                        nisar_product_obj)
 
-                        rfi_likelihood_list = []
-                        for pol in pol_list:
-                            rfi_likelihood_path = \
-                                ('/science/LSAR/RSLC/metadata/'
-                                 'calibrationInformation/'
-                                 f'frequency{freq}/{pol}/rfiLikelihood')
-                            print(
-                                f'rfi_likelihood_path ({pol}): {rfi_likelihood_path}')
-                            rfi_likelihood_dataset = h5_obj[rfi_likelihood_path]
-                            rfi_likelihood = float(rfi_likelihood_dataset[()])
-                            print(f'rfi_likelihood ({pol}): {rfi_likelihood}')
-                            rfi_likelihood_list.append(rfi_likelihood)
-                        max_rfi_likelihood = max(rfi_likelihood_list)
+                    max_rfi_likelihood = self.get_max_rfi_likelihood(
+                        freq, pol_list)
 
                     print(f'maximum RFI likelihood: {max_rfi_likelihood}')
 
@@ -851,6 +896,28 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
         if self.output_file:
             print(f'# file saved: {self.output_file}')
             plant.append_output_file(self.output_file)
+
+    def get_max_rfi_likelihood(self, freq, pol_list):
+        with plant.h5py_file_wrapper(self.input_file, 'r', swmr=True) as h5_obj:
+            rfi_likelihood_list = []
+            for pol in pol_list:
+                rfi_likelihood_path = \
+                    ('/science/LSAR/RSLC/metadata/'
+                     'calibrationInformation/'
+                     f'frequency{freq}/{pol}/rfiLikelihood')
+                print(f'rfi_likelihood_path ({pol}): {rfi_likelihood_path}')
+                rfi_likelihood_dataset = h5_obj[rfi_likelihood_path]
+                rfi_likelihood = float(rfi_likelihood_dataset[()])
+                print(f'rfi_likelihood ({pol}): {rfi_likelihood}')
+                rfi_likelihood_list.append(rfi_likelihood)
+            max_rfi_likelihood = max(rfi_likelihood_list)
+        return max_rfi_likelihood
+
+    def _get_acquisition_mode_list(self, nisar_product_obj):
+        with plant.h5py_file_wrapper(self.input_file, 'r', swmr=True) as h5_obj:
+            acquisition_mode_list = plant_isce3.get_acquisition_mode_list(
+                h5_obj, nisar_product_obj)
+        return acquisition_mode_list
 
     def plot_results(self, data_exception_str, freq, suffix_ml,
                      profiles_directory, images_directory, pol_list,
@@ -1095,7 +1162,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                 f'{self.prefix}slantrange_profile_{freq}{suffix_ml}'
                 '.png')
 
-            title = (f'{radiometric_terrain_convention} backscatter Range'
+            title = (f'{radiometric_terrain_convention} Backscatter Range'
                      f' Profiles - Freq. {freq} ({data_exception_str})')
 
             display_profile_kwargs = {}
@@ -1626,8 +1693,6 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
         f = interp1d(slant_range_orig, profile_x_stddev_orig, kind='cubic')
 
         profile_x_stddev = f(slant_ranges)
-
-        divisor_mean = np.nanmean(divisor)
 
         return profile_x_min, divisor, profile_x_stddev
 
