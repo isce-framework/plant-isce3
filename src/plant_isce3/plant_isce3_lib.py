@@ -2479,12 +2479,15 @@ class PlantIsce3Script(plant.PlantScript):
 
     def generate_elevation_profiles(
             self, output_dir,
-            nisar_product_obj, freq, pol,
+            nisar_product_obj,
+            freq,
+            pol,
             image,
             radar_grid_ml,
             metadata_dict,
             profile_filter_size,
 
+            dem_file,
             suffix_ml,
             prefix='',
             flag_phase=False):
@@ -2504,7 +2507,7 @@ class PlantIsce3Script(plant.PlantScript):
         else:
 
             print('generating elevation profiles for frequency', freq)
-            dem_raster = isce3.io.Raster(self.dem_file)
+            dem_raster = isce3.io.Raster(dem_file)
 
             orbit = nisar_product_obj.getOrbit()
 

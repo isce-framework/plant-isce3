@@ -2146,8 +2146,8 @@ class PlantIsce3BatchProcessing(plant_isce3.PlantIsce3Script):
                         frequency=frequency,
                         output_skip_if_existent=self.output_skip_if_existent,
                         force=True,
+                        dem_file=self.dem_file,
 
-                        generate_elevation_profiles=True,
                         remove_cross_multiplication_files=True,
                         nlooks_x=nlooks_x, nlooks_y=nlooks_y,
 

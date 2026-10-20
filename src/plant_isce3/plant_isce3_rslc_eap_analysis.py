@@ -1017,7 +1017,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
             if len(max_list) != 0:
                 image_kwargs['max'] = ', '.join(map(str, max_list))
 
-            title = (f'{radiometric_terrain_convention} backscatter - Freq.'
+            title = (f'{radiometric_terrain_convention} Backscatter - Freq.'
                      f' {freq} ({data_exception_str})')
             plant.display(*pol_file_list,
                           output_file=processed_backscatter_png_file,
@@ -1049,7 +1049,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                     continue
                 pol_file_list.append(pol_file)
 
-            title = (f'{radiometric_terrain_convention} backscatter - Freq.'
+            title = (f'{radiometric_terrain_convention} Backscatter - Freq.'
                      f' {freq} ({data_exception_str})')
             plant.display(*pol_file_list,
                           output_file=processed_backscatter_hist_png_file,
@@ -1087,7 +1087,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                 f'{self.prefix}elevation_profile'
                 f'_{freq}{suffix_ml}.png')
 
-            title = (f'{radiometric_terrain_convention} backscatter'
+            title = (f'{radiometric_terrain_convention} Backscatter'
                      f' Elevation Profiles - Freq. {freq}'
                      f' ({data_exception_str})')
 
@@ -1357,6 +1357,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                         metadata_dict,
                         profile_filter_size,
 
+                        self.dem_file,
                         suffix_ml,
                         prefix='backscatter_')
 
