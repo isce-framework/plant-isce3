@@ -837,9 +837,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                         "ERROR WorldCover required to save EAP stats file")
                     return
                 elif self.output_eap_stats_file:
-                    print(
-                        f'## Saving EAP stats file: {
-                            self.output_eap_stats_file}')
+                    print(f'## Saving EAP stats file: {self.output_eap_stats_file}')
 
                     print(f'cycle: {cycle}')
                     print(f'track: {track}')
