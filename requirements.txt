@@ -14,3 +14,4 @@ ruamel_yaml>=0.15
 scikit-image
 scipy
 shapely
+fiona
