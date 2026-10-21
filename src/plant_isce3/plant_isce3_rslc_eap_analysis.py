@@ -2,7 +2,7 @@
 import gc
 
 import shutil
-from osgeo import gdal
+
 import numpy as np
 
 import os
@@ -13,7 +13,6 @@ from scipy.ndimage import binary_dilation
 import json
 import os
 
-import fiona
 import geopandas as gpd
 import pandas as pd
 from shapely import wkt
@@ -389,6 +388,8 @@ def update_vegetation_gpkg(
     key_columns = ["cycle", "track", "frame", "frequency"]
 
     file_exists = os.path.exists(filename)
+
+    import fiona
     layer_exists = (
         file_exists and layer in fiona.listlayers(filename)
     )
@@ -419,6 +420,7 @@ def update_vegetation_gpkg(
         gdf = new_gdf
 
     if layer_exists:
+        import fiona
         fiona.remove(filename, driver="GPKG", layer=layer)
 
     gdf.to_file(
@@ -837,7 +839,8 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                         "ERROR WorldCover required to save EAP stats file")
                     return
                 elif self.output_eap_stats_file:
-                    print(f'## Saving EAP stats file: {self.output_eap_stats_file}')
+                    print('## Saving EAP stats file:'
+                          f' {self.output_eap_stats_file}')
 
                     print(f'cycle: {cycle}')
                     print(f'track: {track}')
