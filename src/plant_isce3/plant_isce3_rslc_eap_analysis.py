@@ -791,7 +791,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                             self.flat_pol(profiles_directory,
                                           images_directory,
                                           nisar_product_obj, plant_product_obj,
-                                          product_path, rslc_obj,
+
                                           nlooks_y, nlooks_x,
                                           freq, abs_cal_factor,
                                           gamma_to_beta_factor,
@@ -828,7 +828,9 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                         pol_list,
                         display_profiles_dict,
                         display_elevation_profiles_dict,
-                        radiometric_terrain_convention.title())
+                        radiometric_terrain_convention.title(),
+                        nlooks_y,
+                        nlooks_x)
 
                 if self.output_eap_stats_file and not self.worldcover:
                     self.print(
@@ -922,7 +924,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
     def plot_results(self, data_exception_str, freq, suffix_ml,
                      profiles_directory, images_directory, pol_list,
                      display_profiles_dict, display_elevation_profiles_dict,
-                     radiometric_terrain_convention):
+                     radiometric_terrain_convention, nlooks_y, nlooks_x):
 
         plot_kwargs = {
             'grid_distance_major_y': 1,
@@ -969,6 +971,8 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                           force=True,
                           title=title,
                           fontsize=9,
+                          label_y=f'Azimuth Line (x {nlooks_y})',
+                          label_x=f'Range Bin (x {nlooks_x})',
                           no_show=True,
                           crop_plots=True,
 
@@ -1017,13 +1021,15 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
             if len(max_list) != 0:
                 image_kwargs['max'] = ', '.join(map(str, max_list))
 
-            title = (f'{radiometric_terrain_convention} backscatter - Freq.'
+            title = (f'{radiometric_terrain_convention} Backscatter - Freq.'
                      f' {freq} ({data_exception_str})')
             plant.display(*pol_file_list,
                           output_file=processed_backscatter_png_file,
                           force=True,
                           title=title,
                           fontsize=9,
+                          label_y=f'Azimuth Line (x {nlooks_y})',
+                          label_x=f'Range Bin (x {nlooks_x})',
                           no_show=True,
                           crop_plots=True,
 
@@ -1049,7 +1055,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                     continue
                 pol_file_list.append(pol_file)
 
-            title = (f'{radiometric_terrain_convention} backscatter - Freq.'
+            title = (f'{radiometric_terrain_convention} Backscatter - Freq.'
                      f' {freq} ({data_exception_str})')
             plant.display(*pol_file_list,
                           output_file=processed_backscatter_hist_png_file,
@@ -1087,7 +1093,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                 f'{self.prefix}elevation_profile'
                 f'_{freq}{suffix_ml}.png')
 
-            title = (f'{radiometric_terrain_convention} backscatter'
+            title = (f'{radiometric_terrain_convention} Backscatter'
                      f' Elevation Profiles - Freq. {freq}'
                      f' ({data_exception_str})')
 
@@ -1200,8 +1206,9 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
 
     def flat_pol(self, profiles_directory, images_directory,
                  nisar_product_obj,
-                 plant_product_obj, product_path,
-                 rslc_obj, nlooks_y, nlooks_x, freq,
+                 plant_product_obj,
+
+                 nlooks_y, nlooks_x, freq,
                  abs_cal_factor, gamma_to_beta_factor,
                  mask_non_forest,
                  pol_count, pol,
@@ -1357,6 +1364,7 @@ class PlantIsce3RslcEapAnalysis(plant_isce3.PlantIsce3Script):
                         metadata_dict,
                         profile_filter_size,
 
+                        self.dem_file,
                         suffix_ml,
                         prefix='backscatter_')
 

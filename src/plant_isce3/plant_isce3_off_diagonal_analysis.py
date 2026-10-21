@@ -15,7 +15,7 @@ def get_parser():
 
     parser = plant.argparse(epilog=epilog,
                             description=descr,
-
+                            dem_file=1,
                             input_file=2,
 
                             output_skip_if_existent=1,
@@ -116,7 +116,7 @@ class PlantIsce3OffDiagAnalysis(plant_isce3.PlantIsce3Script):
                 'hasInputDataException')
 
         data_exception_str = \
-            f' (data exception: {flag_has_input_data_exception})'
+            f' (Data Exception: {flag_has_input_data_exception})'
 
         nlooks_y, nlooks_x = self.get_nlooks(frequency=freq)
 
@@ -223,7 +223,7 @@ class PlantIsce3OffDiagAnalysis(plant_isce3.PlantIsce3Script):
         profile_x = np.nanmean(masked_image, axis=0)
 
         if self.profile_filter_size is None:
-            profile_filter_size = profile_x.size // 10
+            profile_filter_size = max(profile_x.size // 500, 1)
         else:
             profile_filter_size = self.profile_filter_size
 
@@ -243,12 +243,18 @@ class PlantIsce3OffDiagAnalysis(plant_isce3.PlantIsce3Script):
             title_no_offset = (
                 f'{self.plot_dataset_name} - RSLC Phase({pol_1}.{pol_2}*)'
                 f' Freq. {freq}' + date_str + data_exception_str +
-                ' (offset removed) [rad]')
+                ' (Offset Removed) [rad]')
         else:
             title_no_offset = (
                 f'RSLC Phase({pol_1}.{pol_2}*)'
                 f' Freq. {freq}' + date_str + data_exception_str +
-                ' (offset removed) [rad]')
+                ' (Offset Removed) [rad]')
+
+        plot_kwargs = {
+            'grid_distance_major_y': 1,
+            'grid_distance_minor_y': 0.25
+        }
+
         if self.flag_generate_elevation_profiles:
 
             pol_pair_str = f'{pol_1}.conj_{pol_2}'
@@ -262,9 +268,11 @@ class PlantIsce3OffDiagAnalysis(plant_isce3.PlantIsce3Script):
                     metadata_dict,
                     profile_filter_size,
 
+                    self.dem_file,
                     suffix_ml='',
                     prefix='',
-                    flag_phase=True)
+                    flag_phase=True,
+                    **plot_kwargs)
 
             elevation_profile_png_file = os.path.join(
                 self.output_dir,
@@ -275,8 +283,8 @@ class PlantIsce3OffDiagAnalysis(plant_isce3.PlantIsce3Script):
                 first_input_as_x=True,
                 title=title_no_offset,
                 marker='',
-                dpi=150,
-                fontsize=9,
+
+                fontsize=11,
                 linewidth=2,
 
                 xlabel='Elevation [deg]',
@@ -288,8 +296,10 @@ class PlantIsce3OffDiagAnalysis(plant_isce3.PlantIsce3Script):
                 stats_linestyle='dashed',
                 stats_linewidth=1,
                 stats_linecolor='red',
+                crop_plots=True,
                 no_show=True,
-                force=True)
+                force=True,
+                **plot_kwargs)
 
         if not os.path.isfile(slant_range_file):
 
@@ -315,13 +325,17 @@ class PlantIsce3OffDiagAnalysis(plant_isce3.PlantIsce3Script):
                      f' Freq. {freq}' + date_str + data_exception_str +
                      ' [rad]')
 
+        shape = profile_x.shape
+        invalid = np.isnan(profile_x)
+
         if profile_filter_size > 0:
             print('applying profile filter of size',
                   profile_filter_size)
 
             profile_x = plant.filter_data(
                 profile_x,
-                mean=[1, profile_filter_size])
+                mean=[1, profile_filter_size]).reshape(shape)
+            profile_x[invalid] = np.nan
 
         profile_x_phase = np.angle(profile_x)
 
@@ -330,16 +344,18 @@ class PlantIsce3OffDiagAnalysis(plant_isce3.PlantIsce3Script):
                       first_input_as_x=True,
 
                       title=title,
-                      dpi=150,
-                      fontsize=9,
+
+                      fontsize=11,
                       ymin=-3.14,
                       ymax=3.14,
                       label_y='Phase [rad]',
                       output_file=profile_x_file_png,
                       label_x='Slant range [km]',
+                      crop_plots=True,
                       no_show=True,
 
-                      force=True)
+                      force=True,
+                      **plot_kwargs)
 
         profile_x_mean_phase = np.angle(np.nanmean(profile_x))
         profile_no_offset = profile_x * np.exp(-1j * profile_x_mean_phase)
@@ -349,8 +365,8 @@ class PlantIsce3OffDiagAnalysis(plant_isce3.PlantIsce3Script):
                       profile_no_offset_phase,
                       first_input_as_x=True,
                       title=title_no_offset,
-                      dpi=150,
-                      fontsize=9,
+
+                      fontsize=11,
                       ymin=-3.14,
                       ymax=3.14,
                       hline="-0.5,0.5",
@@ -360,28 +376,55 @@ class PlantIsce3OffDiagAnalysis(plant_isce3.PlantIsce3Script):
                       label_y='Phase [rad]',
                       output_file=profile_x_no_offset_file_png,
                       label_x='Slant range [km]',
+                      crop_plots=True,
                       no_show=True,
 
-                      force=True)
+                      force=True,
+                      **plot_kwargs)
 
-        masked_image_phase = np.angle(masked_image *
-                                      np.exp(-1j * profile_x_mean_phase))
-        del masked_image
+        masked_image_phase = np.angle(masked_image)
 
         plant.display(masked_image_phase,
 
                       title=title + ' - Masked',
                       dpi=150,
-                      fontsize=9,
+                      fontsize=8,
                       label_y=f'Azimuth Line (x {nlooks_y})',
                       output_file=multilooked_file.replace('.tif', '.png'),
                       label_x=f'Range Bin (x {nlooks_x})',
                       min=-3.14,
                       max=3.14,
                       cmap='jet',
+                      crop_plots=True,
                       no_show=True,
 
-                      force=True)
+                      force=True,
+                      **plot_kwargs)
+
+        masked_image_phase = np.angle(masked_image *
+                                      np.exp(-1j * profile_x_mean_phase))
+        del masked_image
+
+        plant.display(
+            masked_image_phase,
+            title=title +
+            ' - Masked (Offset Removed)',
+            dpi=150,
+            fontsize=8,
+            label_y=f'Azimuth Line (x {nlooks_y})',
+            output_file=multilooked_file.replace(
+                '.tif',
+                '_no_offset.png'),
+            label_x=f'Range Bin (x {nlooks_x})',
+            min=-
+            3.14,
+            max=3.14,
+            cmap='jet',
+            crop_plots=True,
+            no_show=True,
+            force=True,
+            **plot_kwargs)
+
         del masked_image_phase
 
         if self.plot_dataset_name:
@@ -403,9 +446,11 @@ class PlantIsce3OffDiagAnalysis(plant_isce3.PlantIsce3Script):
                       output_file=multilooked_file.replace('.tif', '_mag.png'),
                       label_x=f'Range Bin (x {nlooks_x})',
 
+                      crop_plots=True,
                       no_show=True,
 
-                      force=True)
+                      force=True,
+                      **plot_kwargs)
 
         if self.plot_dataset_name:
             title = (f'{self.plot_dataset_name}'
@@ -434,9 +479,11 @@ class PlantIsce3OffDiagAnalysis(plant_isce3.PlantIsce3Script):
                       output_file=beta0_ml_file.replace('.tif', '_mag.png'),
                       label_x=f'Range Bin (x {nlooks_x})',
 
+                      crop_plots=True,
                       no_show=True,
 
-                      force=True)
+                      force=True,
+                      **plot_kwargs)
 
         plant.save_image(profile_no_offset_phase,
                          output_file=profile_phase_processed_file,
